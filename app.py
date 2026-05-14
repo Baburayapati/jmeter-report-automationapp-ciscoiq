@@ -3612,6 +3612,10 @@ def format_compare_cell(value: object) -> str:
         return text if text else "-"
 
 
+def display_bucket_label(label: str) -> str:
+    return str(label).replace("sec", "s").replace(" ", "")
+
+
 def track_comparison_matrix_html(data: pd.DataFrame, is_askai: bool) -> str:
     if data.empty:
         return ""
@@ -3672,7 +3676,7 @@ def track_comparison_matrix_html(data: pd.DataFrame, is_askai: bool) -> str:
     header_second = ["<tr>"]
     for _ in results:
         for bucket in bucket_cols:
-            header_second.append(f"<th>{html.escape(bucket)}</th>")
+            header_second.append(f"<th>{html.escape(display_bucket_label(bucket))}</th>")
         header_second.append('<th class="max-header">Max Seconds</th>')
     header_second.append("</tr>")
     html_rows.append("".join(header_second))
@@ -3876,7 +3880,7 @@ def render_trends_tab(run_frames: List[Dict[str, pd.DataFrame]], compact: bool =
                 "errors": "Errors",
                 "samples": "Samples",
             })
-            needed_cols = ["Result", "Region", "Avg Sec", "P95 Sec", "Max Sec", "Success %", "Error %", "SLA Pass %", "Health Score"]
+            needed_cols = ["Result", "Region", "Avg Sec", "P95 Sec", "Max Sec"]
             display_table = table[safe_cols(table, needed_cols)].copy()
             if compact:
                 st.markdown(
@@ -4207,7 +4211,7 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
             with cols[i % len(cols)]:
                 parts = []
                 for bucket in buckets:
-                    label = bucket.replace("sec", "s").replace(" %", "%")
+                    label = display_bucket_label(bucket)
                     value = float(row.get(bucket, 0) or 0)
                     parts.append(f'<div class="compare-bucket"><span>{label}</span><b>{value:.2f}%</b></div>')
                 bucket_html = "".join(parts)
