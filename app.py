@@ -5755,6 +5755,8 @@ elif team_upload_view:
     if st.session_state.run_frames and not st.session_state.get("team_authenticated"):
         render_executive_dashboard(st.session_state.run_frames)
         st.stop()
+    if not st.session_state.get("team_authenticated", False):
+        render_main_page(show_subtitle=st.session_state.get("team_authenticated", False))
     access_granted = team_upload_access_granted()
     if access_granted:
         upload_left_page = render_upload_left_panel()
@@ -5864,8 +5866,6 @@ elif team_upload_view:
                     st.success("Generated Customer Inventory Benchmarking dashboard and report. Dashboard, Excel Report, and AI Chatbot are now available from the left panel.")
                     st.session_state.upload_left_page = "Dashboard"
                     st.rerun()
-    else:
-        render_main_page(show_subtitle=st.session_state.get("team_authenticated", False))
 
 else:
     if st.session_state.run_frames:
