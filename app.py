@@ -1796,6 +1796,29 @@ body:has(.upload-left-panel-marker) [data-testid="stSidebar"] > div:first-child 
   padding-top: 18px !important;
 }
 
+
+/* REMOVE STREAMLIT SIDEBAR COLLAPSE CHEVRON - UI ONLY */
+body:has(.upload-left-panel-marker) [data-testid="collapsedControl"],
+body:has(.upload-left-panel-marker) button[kind="header"],
+body:has(.upload-left-panel-marker) [data-testid="stSidebarCollapseButton"],
+body:has(.upload-left-panel-marker) [aria-label="Close sidebar"],
+body:has(.upload-left-panel-marker) [aria-label="Open sidebar"],
+body:has(.upload-left-panel-marker) [aria-label="Collapse sidebar"],
+body:has(.upload-left-panel-marker) [aria-label="Expand sidebar"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* keep sidebar fixed/open and remove the top chevron area */
+body:has(.upload-left-panel-marker) [data-testid="stSidebar"] {
+  min-width: 238px !important;
+  width: 238px !important;
+}
+body:has(.upload-left-panel-marker) [data-testid="stSidebar"] button {
+  pointer-events: auto;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
