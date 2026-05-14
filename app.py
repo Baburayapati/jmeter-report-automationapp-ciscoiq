@@ -3728,7 +3728,7 @@ def render_track_comparison_dashboard(run_frames: List[Dict[str, pd.DataFrame]])
 
 
 def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
-    st.markdown('<div class="panel"><div class="panel-title">TRACK COMPARISON <span class="tag">Grouped by result</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel"><div class="panel-title" style="font-size:18px;">TRACK COMPARISON <span class="tag">Grouped by result</span></div>', unsafe_allow_html=True)
 
     st.markdown(
         """
@@ -3736,9 +3736,10 @@ def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
 .track-compare-table-wrap {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #c7cfdb;
-  border-radius: 10px;
-  background: #f6f8fc;
+  border: 1px solid #d3dbe8;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f6fc 100%);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
 }
 .track-compare-table {
   width: max-content;
@@ -3749,10 +3750,10 @@ def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
 }
 .track-compare-table th,
 .track-compare-table td {
-  border: 1px solid #2a2a2a;
-  padding: 6px 8px;
+  border: 1px solid #cfd8e3;
+  padding: 7px 9px;
   text-align: right;
-  background: #ececec;
+  background: #f8fafc;
   white-space: nowrap;
 }
 .track-compare-table th.fixed-col,
@@ -3766,43 +3767,52 @@ def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
   min-width: 70px;
 }
 .track-compare-table th.result-group {
-  background: #f4ef00;
+  background: linear-gradient(180deg, #194b9b 0%, #103b81 100%);
   text-align: center;
   font-size: 18px;
   font-weight: 900;
-  color: #101010;
+  color: #ffffff;
+  letter-spacing: 0.2px;
 }
 .track-compare-table thead tr:nth-child(2) th {
-  background: #e5e5e5;
+  background: #eaf0f7;
   font-weight: 800;
+  font-size: 11px;
+  color: #344256;
 }
 .track-compare-table th.max-header,
 .track-compare-table td.max-col {
-  background: #f5c7ce;
+  background: #ffe1e5;
   color: #a0141a;
   font-weight: 900;
 }
 .track-compare-table td.track-name {
-  font-size: 16px;
-  font-weight: 500;
-  background: #f3f3f3;
+  font-size: 14px;
+  font-weight: 700;
+  background: #eef3f9;
 }
 .track-compare-table td.metric-name {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
-  background: #efefef;
+  background: #f1f5fa;
 }
 .track-compare-table td {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.05;
+}
+.track-compare-table tbody tr:nth-child(even) td {
+  background: #f4f7fb;
 }
 @media (max-width: 1200px) {
   .track-compare-table th.result-group,
   .track-compare-table td.track-name,
   .track-compare-table td.metric-name,
   .track-compare-table td {
-    font-size: 14px;
+    font-size: 12px;
+  }
+  .track-compare-table thead tr:nth-child(2) th {
+    font-size: 10px;
   }
 }
 </style>
