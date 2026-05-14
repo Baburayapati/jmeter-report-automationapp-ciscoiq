@@ -3769,7 +3769,7 @@ def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
 .track-compare-table th.result-group {
   background: linear-gradient(180deg, #194b9b 0%, #103b81 100%);
   text-align: center;
-  font-size: 18px;
+  font-size: 12px;
   font-weight: 900;
   color: #ffffff;
   letter-spacing: 0.2px;
@@ -3877,7 +3877,94 @@ def render_trends_tab(run_frames: List[Dict[str, pd.DataFrame]], compact: bool =
                 "samples": "Samples",
             })
             needed_cols = ["Result", "Region", "Avg Sec", "P95 Sec", "Max Sec", "Success %", "Error %", "SLA Pass %", "Health Score"]
-            st.dataframe(table[safe_cols(table, needed_cols)], use_container_width=True, hide_index=True, height=min(260, 78 + 36 * len(table)) if compact else min(520, 78 + 36 * len(table)))
+            display_table = table[safe_cols(table, needed_cols)].copy()
+            if compact:
+                st.markdown(
+                    """
+<style>
+.trends-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #d3dbe8;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f6fc 100%);
+  box-shadow: 0 10px 28px rgba(15,23,42,.06);
+  margin-top: 6px;
+}
+.trends-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: #111827;
+}
+.trends-table th,
+.trends-table td {
+  border: 1px solid #cfd8e3;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+.trends-table th {
+  background: #eaf0f7;
+  font-size: 11px;
+  font-weight: 800;
+  color: #344256;
+  text-align: left;
+}
+.trends-table td {
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: right;
+}
+.trends-table td.result-col,
+.trends-table td.region-col {
+  text-align: left;
+  font-weight: 700;
+}
+.trends-table td.success-col,
+.trends-table td.sla-col,
+.trends-table td.health-col {
+  background: #edf8f0;
+  color: #166534;
+}
+.trends-table td.error-col {
+  background: #ffeef0;
+  color: #9f1239;
+}
+.trends-table tbody tr:nth-child(even) td {
+  background: #f4f7fb;
+}
+@media (max-width: 1200px) {
+  .trends-table th { font-size: 10px; }
+  .trends-table td { font-size: 11px; }
+}
+</style>
+""",
+                    unsafe_allow_html=True,
+                )
+
+                column_classes = {
+                    "Result": "result-col",
+                    "Region": "region-col",
+                    "Success %": "success-col",
+                    "Error %": "error-col",
+                    "SLA Pass %": "sla-col",
+                    "Health Score": "health-col",
+                }
+                header_html = "".join([f"<th>{html.escape(col)}</th>" for col in display_table.columns])
+                body_rows = []
+                for _, row in display_table.iterrows():
+                    cells = []
+                    for col in display_table.columns:
+                        cls = column_classes.get(col, "")
+                        value = format_compare_cell(row.get(col, ""))
+                        cells.append(f'<td class="{cls}">{html.escape(value)}</td>')
+                    body_rows.append(f"<tr>{''.join(cells)}</tr>")
+                st.markdown(
+                    f'<div class="trends-table-wrap"><table class="trends-table"><thead><tr>{header_html}</tr></thead><tbody>{"".join(body_rows)}</tbody></table></div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.dataframe(display_table, use_container_width=True, hide_index=True, height=min(520, 78 + 36 * len(table)))
     if not compact:
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -4133,12 +4220,12 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
 
     st.markdown("""
 <style>
-.overview-compare-card {background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%); border: 1px solid #dbe4f0; border-radius: 16px; padding: 14px; box-shadow: 0 10px 24px rgba(15,23,42,.06); margin-bottom: 12px;}
-.overview-compare-title {font-size: 14px; font-weight: 900; color: #0f2b68; margin-bottom: 12px;}
-.overview-compare-grid {display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;}
-.compare-bucket {background: #eef5ff; border: 1px solid #dbeafe; border-radius: 12px; padding: 10px 8px; text-align: center;}
-.compare-bucket span {display:block; font-size: 12px; color:#64748b; font-weight:800;}
-.compare-bucket b {display:block; margin-top: 5px; font-size: 18px; color:#111827;}
+.overview-compare-card {background: linear-gradient(180deg, #f8fbff 0%, #f2f6fc 100%); border: 1px solid #d3dbe8; border-radius: 14px; padding: 12px; box-shadow: 0 10px 28px rgba(15,23,42,.06); margin-bottom: 12px;}
+.overview-compare-title {font-size: 12px; font-weight: 900; color: #ffffff; margin-bottom: 10px; background: linear-gradient(180deg, #194b9b 0%, #103b81 100%); border-radius: 10px; padding: 7px 10px; letter-spacing: .15px;}
+.overview-compare-grid {display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px;}
+.compare-bucket {background: #f8fafc; border: 1px solid #cfd8e3; border-radius: 10px; padding: 8px 6px; text-align: center;}
+.compare-bucket span {display:block; font-size: 10px; color:#344256; font-weight:800;}
+.compare-bucket b {display:block; margin-top: 4px; font-size: 13px; color:#111827;}
 </style>
 """, unsafe_allow_html=True)
 
