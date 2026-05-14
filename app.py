@@ -2476,6 +2476,19 @@ def canonical_track_name(value: str) -> str:
     return str(value or "").strip()
 
 
+def frame_track_name(frames: Dict[str, pd.DataFrame]) -> str:
+    info = frames.get("Run_Info")
+    info_row = info.iloc[0].to_dict() if info is not None and not info.empty else {}
+    return canonical_track_name(info_row.get("Track") or infer_program_track(frames.get("Label", ""))[1])
+
+
+def merge_run_frames_by_track(existing_frames: List[Dict[str, pd.DataFrame]], new_frames: List[Dict[str, pd.DataFrame]], track_name: str) -> List[Dict[str, pd.DataFrame]]:
+    target_track = canonical_track_name(track_name)
+    kept = [frames for frames in (existing_frames or []) if frame_track_name(frames) != target_track]
+    merged = kept + (new_frames or [])
+    return add_region_to_frames(merged)
+
+
 def sanitize_token(value: str) -> str:
     token = re.sub(r"[^A-Za-z0-9]+", "-", str(value or "").strip())
     token = re.sub(r"-+", "-", token).strip("-")
@@ -2690,10 +2703,29 @@ def safe_cols(df: pd.DataFrame, cols: List[str]) -> List[str]:
 def track_summary(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
+    work = df.copy()
+    if "Track Type" not in work.columns:
+        if "Feature" in work.columns:
+            work["Track Type"] = work["Feature"].astype(str).str.upper().str.startswith("ASKAI").map({True: "AskAI", False: "Other"})
+        else:
+            work["Track Type"] = "Other"
+    for col, default in {
+        "Avg ResTime in sec": 0,
+        "95thPercentile Resp Time in Sec": 0,
+        "MaxRes Time in sec": 0,
+        "errorCount": 0,
+        "errorPct": 0,
+        "sampleCount": 0,
+        "SLA Status": "PASS",
+        "Feature": "Unknown",
+    }.items():
+        if col not in work.columns:
+            work[col] = default
+
     out = (
-        df.groupby(["Feature", "Track Type"], dropna=False)
+        work.groupby(["Feature", "Track Type"], dropna=False)
         .agg(
-            APIs=("API", "count"),
+            APIs=("Feature", "count"),
             Avg_Sec=("Avg ResTime in sec", "mean"),
             P95_Sec=("95thPercentile Resp Time in Sec", "mean"),
             Max_Sec=("MaxRes Time in sec", "max"),
@@ -4186,7 +4218,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
 
         if selected_tab == "Chatbot":
             st.markdown('<div class="panel"><div class="panel-title">AI CHATBOT</div>', unsafe_allow_html=True)
-            render_chatbot(selected_frames, key_suffix='tab')
+            render_chatbot(run_frames, key_suffix='tab')
             st.markdown("</div>", unsafe_allow_html=True)
             return
         if selected_tab == "Detailed Report":
@@ -5060,6 +5092,7 @@ def make_api_like_row(feature: str, scenario: str, values: pd.Series, sla_sec: f
         "Feature": feature,
         "Scenario": scenario,
         "Endpoint": scenario,
+        "API": f"{feature}/{scenario}/{scenario}",
         "sampleCount": sample_count,
         "errorCount": error_count,
         "errorPct": error_pct,
@@ -5151,6 +5184,7 @@ def build_api_like_df_from_csv(csv_path: Path, track_name: str) -> pd.DataFrame:
                     "Feature": feature,
                     "Scenario": scenario,
                     "Endpoint": scenario,
+                    "API": f"{feature}/{scenario}/{scenario}",
                     "sampleCount": sample_count,
                     "errorCount": error_count,
                     "errorPct": round(error_pct, 3),
@@ -5231,18 +5265,17 @@ def generate_dashboard_from_saved_csv(track_name: str, csv_path: Path, item: Dic
         "Run_Info": run_info,
     }]
 
+    merged_frames = merge_run_frames_by_track(st.session_state.get("run_frames", []), run_frames, track_name)
     excel_bytes = build_excel_bytes_from_frames(run_frames)
     new_run_id = uuid.uuid4().hex
     report_name = f"{track_name.replace(' ', '_')}_Report.xlsx"
 
     dashboard_store[new_run_id] = {
-        "run_frames": run_frames,
-        "excel_bytes": excel_bytes,
-        "report_file_name": report_name,
+        "run_frames": merged_frames,
+        "excel_bytes": st.session_state.get("excel_bytes"),
+        "report_file_name": st.session_state.get("report_file_name", "JMeter_Report.xlsx"),
     }
-    st.session_state.excel_bytes = excel_bytes
-    st.session_state.run_frames = run_frames
-    st.session_state.report_file_name = report_name
+    st.session_state.run_frames = merged_frames
     st.session_state.messages = []
     st.session_state.run_id = new_run_id
     st.session_state["active_track"] = track_name
@@ -5284,13 +5317,14 @@ def generate_dashboard_from_uploaded_csv_files(track_name: str, uploaded_files) 
         except Exception:
             pass
 
+    merged_frames = merge_run_frames_by_track(st.session_state.get("run_frames", []), run_frames, track_name)
     new_run_id = uuid.uuid4().hex
     dashboard_store[new_run_id] = {
-        "run_frames": run_frames,
+        "run_frames": merged_frames,
         "excel_bytes": st.session_state.get("excel_bytes"),
         "report_file_name": st.session_state.get("report_file_name", "JMeter_Report.xlsx"),
     }
-    st.session_state.run_frames = run_frames
+    st.session_state.run_frames = merged_frames
     st.session_state.messages = []
     st.session_state.run_id = new_run_id
     st.session_state["active_track"] = track_name
