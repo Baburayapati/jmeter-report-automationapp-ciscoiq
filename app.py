@@ -1993,6 +1993,9 @@ body:has(.upload-left-panel-marker) .upload-left-logo {
 }
 
 /* keep collapse action disabled only on upload page */
+body:has(.upload-left-panel-marker) [data-testid="stSidebarCollapseButton"],
+body:has(.upload-left-panel-marker) [data-testid="collapsedControl"],
+body:has(.upload-left-panel-marker) button[kind="header"],
 body:has(.upload-left-panel-marker) button[aria-label="Close sidebar"],
 body:has(.upload-left-panel-marker) button[aria-label="Collapse sidebar"] {
   display: none !important;
@@ -2704,7 +2707,7 @@ def render_upload_left_panel() -> str:
 
 def render_upload_sidebar_page(page_name: str) -> bool:
     """Return True if a sidebar page was rendered and upload cards should stop."""
-    base_app_url = "https://ciscoiq-report-automation.streamlit.app/"
+    base_app_url = "https://ciscoiq-report-automation-app.streamlit.app/"
 
     if page_name == "Dashboard":
         run_id_value = st.session_state.get("run_id", "")
