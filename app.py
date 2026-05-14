@@ -2205,14 +2205,15 @@ st.markdown(
   backdrop-filter: blur(10px);
 }
 .panel-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 900;
   color: #102a63;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   display:flex;
   align-items:center;
   justify-content:space-between;
   letter-spacing:.16px;
+  line-height: 1.2;
 }
 .panel-title .tag {
   font-size:11px;
@@ -2221,6 +2222,13 @@ st.markdown(
   padding:4px 10px;
   border-radius:999px;
   border:1px solid #dbeafe;
+}
+.dashboard-subtitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1f3b78;
+  margin: 4px 0 6px 0;
+  line-height: 1.2;
 }
 .kpi-grid {
   display:grid;
@@ -3596,7 +3604,7 @@ def render_track_comparison_dashboard(run_frames: List[Dict[str, pd.DataFrame]])
         if data.empty:
             return
         with st.container(border=True):
-            st.markdown(f'<div class="panel-title">{title}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="dashboard-subtitle">{title}</div>', unsafe_allow_html=True)
             total = data[data["_TrackKey"] == "Total"].copy()
             detail = data[data["_TrackKey"] != "Total"].copy()
             if not total.empty:
@@ -3619,14 +3627,14 @@ def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
 
     askai_df, other_df = cached_track_comparison(run_frames)
 
-    st.markdown("### AskAI Tracks")
+    st.markdown('<div class="dashboard-subtitle">AskAI Tracks</div>', unsafe_allow_html=True)
     st.caption("Result includes the region. Repeated Track and Result cells are intentionally blank to keep Avg, Min and Max rows grouped together.")
     if not askai_df.empty:
         st.dataframe(display_track_comparison_df(askai_df), use_container_width=True, hide_index=True, height=min(520, 78 + 36 * len(askai_df)))
     else:
         st.info("No AskAI tracks found.")
 
-    st.markdown("### Assets / Assessments / Home / Settings / Support Tracks")
+    st.markdown('<div class="dashboard-subtitle">Assets / Assessments / Home / Settings / Support Tracks</div>', unsafe_allow_html=True)
     st.caption("Result includes the region. Repeated Track and Result cells are intentionally blank to keep Avg, Min and Max rows grouped together.")
     if not other_df.empty:
         st.dataframe(display_track_comparison_df(other_df), use_container_width=True, hide_index=True, height=min(620, 78 + 36 * len(other_df)))
@@ -3884,7 +3892,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
                 goto_tab_button('View SLA Breaches →', 'Detailed Report', 'view_sla_breaches_btn')
 
         with st.container(border=True):
-            st.markdown('<div class="panel-title">COMPARISON SUMMARY <span class="tag">Avg buckets</span></div>', unsafe_allow_html=True)
+            st.markdown('<div class="panel-title">SUMMARY <span class="tag">Avg buckets</span></div>', unsafe_allow_html=True)
             render_overview_comparison_summary(selected_frames)
             goto_tab_button('Open Full Comparison →', 'Track Comparison', 'overview_full_compare_btn')
 
@@ -3903,7 +3911,7 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
         data = df[(df["_TrackKey"] == "Total") & (df["Metric"] == "Avg")].copy()
         if data.empty:
             return
-        st.markdown(f"#### {title}")
+        st.markdown(f'<div class="dashboard-subtitle">{title}</div>', unsafe_allow_html=True)
         cols = st.columns(min(3, len(data)), gap="medium")
         for i, (_, row) in enumerate(data.iterrows()):
             with cols[i % len(cols)]:
