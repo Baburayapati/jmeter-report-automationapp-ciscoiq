@@ -720,20 +720,20 @@ div[style*="min-height: 34px"]:empty {
   border-radius: 22px !important;
   overflow: hidden !important;
   box-shadow: 0 18px 44px rgba(15,23,42,.075) !important;
-  margin: 12px 0 14px 0 !important;
+  margin: 12px 0 6px 0 !important;
   gap: 0 !important;
 }
 .exact-nav-anchor + div[data-testid="stHorizontalBlock"] > div:first-child {
   background: linear-gradient(135deg,#2563eb 0%,#7c3aed 100%) !important;
-  padding: 16px 16px 14px 16px !important;
-  min-height: 248px !important;
+  padding: 16px 16px 10px 16px !important;
+  min-height: 0 !important;
 }
 .exact-nav-anchor + div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
-  padding: 16px 18px 14px 18px !important;
+  padding: 16px 18px 8px 18px !important;
 }
 .exact-label {
-  font-size: 22px;
-  font-weight: 950;
+  font-size: 20px;
+  font-weight: 900;
   letter-spacing: .2px;
   text-transform: none;
   margin: 0 0 12px 0;
@@ -3724,7 +3724,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
 
     nav_changed = False
     st.markdown('<div class="exact-nav-anchor"></div>', unsafe_allow_html=True)
-    nav_left, nav_right = st.columns([1.15, 3.2], gap="small")
+    nav_left, nav_right = st.columns([1.05, 3.3], gap="small")
     with nav_left:
         st.markdown('<div class="exact-label white">Programs</div>', unsafe_allow_html=True)
         for icon, label, value in programs_html:
@@ -3753,7 +3753,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
                 st.session_state["dashboard_tab"] = "Overview"
                 nav_changed = True
 
-        st.markdown('<div class="exact-label" style="margin-top:10px;">Dashboard Views</div>', unsafe_allow_html=True)
+        st.markdown('<div class="exact-label" style="margin-top:8px;">Dashboard Views</div>', unsafe_allow_html=True)
         v1, v2, v3, v4 = st.columns([1.05, 1.42, 1.32, 1.15], gap="small")
         for col, (value, label) in zip([v1, v2, v3, v4], tabs_html):
             if col.button(
