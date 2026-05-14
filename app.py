@@ -1992,17 +1992,19 @@ body:has(.upload-left-panel-marker) .upload-left-logo {
   display: none !important;
 }
 
-/* keep sidebar fixed/open so upload UI does not break */
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapseButton"],
-button[kind="header"],
-button[aria-label="Open sidebar"],
-button[aria-label="Close sidebar"],
-button[aria-label="Expand sidebar"],
-button[aria-label="Collapse sidebar"] {
+/* keep collapse action disabled only on upload page */
+body:has(.upload-left-panel-marker) button[aria-label="Close sidebar"],
+body:has(.upload-left-panel-marker) button[aria-label="Collapse sidebar"] {
   display: none !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+/* if sidebar was collapsed earlier, force it visible on upload page */
+body:has(.upload-left-panel-marker) section[data-testid="stSidebar"] {
+  transform: none !important;
+  margin-left: 0 !important;
+  left: 0 !important;
 }
 
 </style>
@@ -2640,6 +2642,27 @@ def combined_df(run_frames: List[Dict[str, pd.DataFrame]]) -> pd.DataFrame:
 
 def render_upload_left_panel() -> str:
     """Native Streamlit sidebar navigation; does not reload app or lose login session."""
+
+    components.html(
+        """
+<script>
+(function () {
+  const doc = window.parent.document;
+  const sidebar = doc.querySelector('section[data-testid="stSidebar"]');
+  const openBtn = doc.querySelector('button[aria-label="Open sidebar"], button[aria-label="Expand sidebar"]');
+  const isCollapsed = sidebar && (
+    sidebar.getAttribute('aria-expanded') === 'false' ||
+    getComputedStyle(sidebar).transform.includes('-')
+  );
+  if (isCollapsed && openBtn) {
+    openBtn.click();
+  }
+})();
+</script>
+""",
+        height=0,
+    )
+
     st.markdown('<div class="upload-left-panel-marker"></div>', unsafe_allow_html=True)
     st.markdown(
         """
