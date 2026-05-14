@@ -732,15 +732,16 @@ div[style*="min-height: 34px"]:empty {
   padding: 16px 18px 14px 18px !important;
 }
 .exact-label {
-  font-size: 11px;
+  font-size: 22px;
   font-weight: 950;
-  letter-spacing: .9px;
-  text-transform: uppercase;
-  margin: 0 0 10px 0;
+  letter-spacing: .2px;
+  text-transform: none;
+  margin: 0 0 12px 0;
   color: #0f2b68;
 }
 .exact-label.white {
   color: #ffffff;
+  text-shadow: 0 1px 2px rgba(15,23,42,.15);
 }
 /* Button styles inside exact nav */
 .exact-nav-anchor + div[data-testid="stHorizontalBlock"] .stButton > button {
@@ -3721,16 +3722,11 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
         ("Chatbot", "● AI Chatbot"),
     ]
 
-    available_regions = sorted(set([frames.get("Region", region_from_frames(frames)) for frames in run_frames if frames.get("Region", region_from_frames(frames))]))
-    region_choices = ["All"] + [r for r in available_regions if str(r).upper() not in {"UNKNOWN", "N/A", "NA"}]
-    if len(region_choices) == 1:
-        region_choices = ["All", "US", "EMEA", "APJC"]
-
     nav_changed = False
     st.markdown('<div class="exact-nav-anchor"></div>', unsafe_allow_html=True)
     nav_left, nav_right = st.columns([1.15, 3.2], gap="small")
     with nav_left:
-        st.markdown('<div class="exact-label white">1. Programs</div>', unsafe_allow_html=True)
+        st.markdown('<div class="exact-label white">Programs</div>', unsafe_allow_html=True)
         for icon, label, value in programs_html:
             if st.button(
                 f"{icon}  {label}",
@@ -3744,7 +3740,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
                 nav_changed = True
 
     with nav_right:
-        st.markdown('<div class="exact-label">2. Program Tracks</div>', unsafe_allow_html=True)
+        st.markdown('<div class="exact-label">Program Tracks</div>', unsafe_allow_html=True)
         t1, t2, t3, t4 = st.columns([.58, .68, 1.55, 1.95], gap="small")
         for col, value in zip([t1, t2, t3, t4], tracks_html):
             if col.button(
@@ -3757,7 +3753,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
                 st.session_state["dashboard_tab"] = "Overview"
                 nav_changed = True
 
-        st.markdown('<div class="exact-label" style="margin-top:10px;">3. Dashboard Views</div>', unsafe_allow_html=True)
+        st.markdown('<div class="exact-label" style="margin-top:10px;">Dashboard Views</div>', unsafe_allow_html=True)
         v1, v2, v3, v4 = st.columns([1.05, 1.42, 1.32, 1.15], gap="small")
         for col, (value, label) in zip([v1, v2, v3, v4], tabs_html):
             if col.button(
@@ -3769,15 +3765,6 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
                 st.session_state["dashboard_tab"] = value
                 nav_changed = True
 
-        st.markdown('<div class="exact-region-card">', unsafe_allow_html=True)
-        st.selectbox(
-            "Region Filter",
-            region_choices,
-            index=0,
-            key="dashboard_nav_region_visual",
-            disabled=True,
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
 
     if nav_changed:
         if current_run_id:
