@@ -2461,6 +2461,21 @@ def infer_program_track(label: str) -> Tuple[str, str]:
     return PROGRAM_SAAS, TRACK_API
 
 
+def canonical_track_name(value: str) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return TRACK_API
+    if text == "API" or "ASKAI" in text:
+        return TRACK_API
+    if text == "UI" or "LIGHTHOUSE" in text:
+        return TRACK_UI
+    if "CLOUD" in text and "CONNECTOR" in text:
+        return TRACK_CLOUD
+    if "INVENTORY" in text or "BENCHMARK" in text:
+        return TRACK_INVENTORY
+    return str(value or "").strip()
+
+
 def sanitize_token(value: str) -> str:
     token = re.sub(r"[^A-Za-z0-9]+", "-", str(value or "").strip())
     token = re.sub(r"-+", "-", token).strip("-")
@@ -3314,7 +3329,7 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
                 "Region": region,
                 "Date": date,
                 "Duration": duration,
-                "Track": str(info_row.get("Track") or infer_program_track(label)[1]),
+                "Track": canonical_track_name(info_row.get("Track") or infer_program_track(label)[1]),
                 "Application": str(info_row.get("Application", inferred.get("application", APP_NAME_TOKEN))),
                 "Program": str(info_row.get("Program", inferred.get("program", PROGRAM_SAAS))),
                 "Environment": str(info_row.get("Environment", inferred.get("env", "PROD"))),
@@ -3327,7 +3342,8 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
     if meta.empty:
         return run_frames
 
-    meta = meta[meta["Track"] == forced_track].copy()
+    normalized_forced_track = canonical_track_name(forced_track)
+    meta = meta[meta["Track"].map(canonical_track_name) == normalized_forced_track].copy()
     if meta.empty:
         return []
 
@@ -3414,9 +3430,7 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
                 "region": region_options[0],
             }
             st.session_state["applied_dashboard_filters"] = all_filters
-            st.session_state[f"dashboard_filter_file_choice_{scope_token}"] = file_options[0]
-            st.session_state[f"dashboard_filter_date_choice_{scope_token}"] = date_options[0]
-            st.session_state[f"dashboard_filter_region_choice_{scope_token}"] = region_options[0]
+            st.rerun()
         if apply_clicked or scope_key not in all_filters:
             all_filters[scope_key] = {
                 "file": selected_file_choice,
@@ -4031,9 +4045,21 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     st.session_state["active_program"] = active_program
 
     active_track = st.session_state.get("active_track") or params.get("track", "") or "API"
+    active_track = canonical_track_name(active_track)
     track_values = ["API", "UI", "Cloud Assist Connector", "Customer Inventory Benchmarking"]
     if active_track not in track_values:
         active_track = "API"
+
+    available_tracks: List[str] = []
+    for frames in run_frames:
+        info = frames.get("Run_Info")
+        info_row = info.iloc[0].to_dict() if info is not None and not info.empty else {}
+        track_name = canonical_track_name(info_row.get("Track") or infer_program_track(frames.get("Label", ""))[1])
+        if track_name in track_values and track_name not in available_tracks:
+            available_tracks.append(track_name)
+    if available_tracks and active_track not in available_tracks:
+        active_track = available_tracks[0]
+
     st.session_state["active_track"] = active_track
 
     programs_html = [
@@ -5601,41 +5627,86 @@ def team_upload_access_granted() -> bool:
     return False
 
 
-def latest_saved_report_paths() -> Tuple[List[Path], List[str]]:
+def load_saved_dashboard_frames() -> List[Dict[str, pd.DataFrame]]:
     uploads = normalize_saved_uploads(load_saved_uploads())
-    paths = []
-    labels = []
+    frames_out: List[Dict[str, pd.DataFrame]] = []
+
     for item in uploads:
         path = SAVED_REPORTS_DIR / item.get("saved_name", "")
-        track_name = item.get("track") or infer_program_track(item.get("file_name", ""))[1]
-        if path.exists() and str(path.suffix).lower() == ".json" and track_name == TRACK_API:
-            paths.append(path)
-            labels.append(Path(item.get("file_name", path.name)).stem)
-    return paths, labels
+        if not path.exists():
+            continue
+
+        file_name = item.get("file_name", path.name)
+        label = Path(file_name).stem
+        track_name = item.get("track") or infer_program_track(file_name)[1]
+        suffix = str(path.suffix).lower()
+
+        try:
+            if suffix == ".json" and track_name == TRACK_API:
+                frames_out.append(process_uploaded_file(path, label))
+                continue
+
+            if suffix == ".csv" and track_name in {TRACK_UI, TRACK_CLOUD, TRACK_INVENTORY}:
+                inferred = infer_saved_report_info(file_name)
+                region = item.get("region") or inferred.get("region", "Unknown")
+                apis_df = build_api_like_df_from_csv(path, track_name)
+                run_info = pd.DataFrame([{
+                    "Report File": file_name,
+                    "Concurrent Users": item.get("users") or inferred.get("users", "N/A"),
+                    "Devices Count": item.get("devices") or inferred.get("devices", "N/A"),
+                    "Date": item.get("date") or inferred.get("date", "N/A"),
+                    "Duration": item.get("duration") or inferred.get("duration", "N/A"),
+                    "Region": region,
+                    "Application": item.get("application") or inferred.get("application", APP_NAME_TOKEN),
+                    "Program": item.get("program") or PROGRAM_SAAS,
+                    "Track": track_name,
+                    "Environment": item.get("environment") or inferred.get("env", "PROD"),
+                    "Run ID": item.get("run_id") or inferred.get("run_id", "N/A"),
+                    "Epoch": inferred.get("epoch", "N/A"),
+                }])
+                frames_out.append({
+                    "Label": label,
+                    "Region": region,
+                    "APIs": apis_df,
+                    "Transactions": pd.DataFrame(),
+                    "Errors": apis_df[apis_df.get("errorCount", 0) > 0].copy() if not apis_df.empty else pd.DataFrame(),
+                    "Run_Info": run_info,
+                })
+        except Exception:
+            continue
+
+    return add_region_to_frames(frames_out)
 
 
 def load_static_saved_dashboard() -> bool:
-    paths, labels = latest_saved_report_paths()
-    if not paths:
+    frames = load_saved_dashboard_frames()
+    if not frames:
         return False
-    signature = "|".join(f"{path.name}:{path.stat().st_mtime_ns}" for path in paths if path.exists())
+
+    uploads = normalize_saved_uploads(load_saved_uploads())
+    signature = "|".join(
+        f"{item.get('saved_name','')}:{(SAVED_REPORTS_DIR / item.get('saved_name','')).stat().st_mtime_ns}"
+        for item in uploads
+        if (SAVED_REPORTS_DIR / item.get("saved_name", "")).exists()
+    )
     if st.session_state.get("saved_dashboard_signature") == signature and st.session_state.get("run_frames"):
         return True
-    try:
-        generate_dashboard_from_json_paths(paths, labels)
-    except Exception:
-        valid_paths = []
-        valid_labels = []
-        for path, label in zip(paths, labels):
-            try:
-                path.read_text(encoding="utf-8-sig")
-                valid_paths.append(path)
-                valid_labels.append(label)
-            except Exception:
-                continue
-        if not valid_paths:
-            return False
-        generate_dashboard_from_json_paths(valid_paths, valid_labels)
+
+    st.session_state["run_frames"] = frames
+    st.session_state["excel_bytes"] = None
+    st.session_state["report_file_name"] = "JMeter_Report.xlsx"
+    st.session_state["messages"] = []
+    st.session_state["dashboard_tab"] = "Overview"
+    tracks_present: List[str] = []
+    for frame in frames:
+        info = frame.get("Run_Info")
+        info_row = info.iloc[0].to_dict() if info is not None and not info.empty else {}
+        track_name = canonical_track_name(info_row.get("Track") or infer_program_track(frame.get("Label", ""))[1])
+        if track_name and track_name not in tracks_present:
+            tracks_present.append(track_name)
+    if tracks_present:
+        st.session_state["active_track"] = tracks_present[0]
+
     st.session_state["saved_dashboard_signature"] = signature
     st.session_state["run_id"] = "saved-dashboard"
     return True
