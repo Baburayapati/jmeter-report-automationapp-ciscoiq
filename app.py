@@ -5235,16 +5235,12 @@ def generate_dashboard_from_uploaded_csv_files(track_name: str, uploaded_files) 
         except Exception:
             pass
 
-    excel_bytes = build_excel_bytes_from_frames(run_frames) if run_frames else st.session_state.get("excel_bytes")
-    report_name = f"{track_name.replace(' ', '_')}_Report.xlsx"
     new_run_id = uuid.uuid4().hex
     dashboard_store[new_run_id] = {
         "run_frames": run_frames,
-        "excel_bytes": excel_bytes,
-        "report_file_name": report_name,
+        "excel_bytes": st.session_state.get("excel_bytes"),
+        "report_file_name": st.session_state.get("report_file_name", "JMeter_Report.xlsx"),
     }
-    st.session_state.excel_bytes = excel_bytes
-    st.session_state.report_file_name = report_name
     st.session_state.run_frames = run_frames
     st.session_state.messages = []
     st.session_state.run_id = new_run_id
