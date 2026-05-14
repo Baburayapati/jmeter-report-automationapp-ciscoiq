@@ -2052,7 +2052,14 @@ body:has(.upload-left-panel-marker) section[data-testid="stSidebar"] {
 
 /* FINAL TWEAK: reduce header-gap + straighten left tabs */
 body:has(.upload-left-panel-marker) .block-container {
-  padding-top: 92px !important;
+  padding-top: 82px !important;
+}
+
+body:has(.upload-left-panel-marker) .upload-program-title {
+  font-size: 18px !important;
+  font-weight: 950 !important;
+  margin: -2px 0 8px 0 !important;
+  line-height: 1.15 !important;
 }
 
 body:has(.upload-left-panel-marker) [data-testid="stSidebar"] .stButton {
@@ -5748,14 +5755,13 @@ elif team_upload_view:
     if st.session_state.run_frames and not st.session_state.get("team_authenticated"):
         render_executive_dashboard(st.session_state.run_frames)
         st.stop()
-    render_main_page(show_subtitle=st.session_state.get("team_authenticated", False))
     access_granted = team_upload_access_granted()
     if access_granted:
         upload_left_page = render_upload_left_panel()
         if render_upload_sidebar_page(upload_left_page):
             st.stop()
         st.markdown('<div class="clean-upload-page-marker"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="panel-title">Program Track Uploads</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title upload-program-title">Program Track Uploads</div>', unsafe_allow_html=True)
         api_col, ui_col = st.columns(2, gap="medium")
         cloud_col, inv_col = st.columns(2, gap="medium")
 
@@ -5858,6 +5864,8 @@ elif team_upload_view:
                     st.success("Generated Customer Inventory Benchmarking dashboard and report. Dashboard, Excel Report, and AI Chatbot are now available from the left panel.")
                     st.session_state.upload_left_page = "Dashboard"
                     st.rerun()
+    else:
+        render_main_page(show_subtitle=st.session_state.get("team_authenticated", False))
 
 else:
     if st.session_state.run_frames:
