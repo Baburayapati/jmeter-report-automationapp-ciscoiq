@@ -39,6 +39,15 @@ UI_SLA_THRESHOLDS = {
     "SI": 3.0,
     "PERFORMANCE": 90.0,
 }
+UI_EXCLUDED_METRICS = {
+    "assets",
+    "assessments",
+    "home",
+    "settings",
+    "support",
+    "askai",
+    "ask_ai",
+}
 NON_API_LATENCY_SLA_SEC = {
     TRACK_CLOUD: 2.0,
     TRACK_INVENTORY: 2.0,
@@ -2619,20 +2628,18 @@ def add_ui_sla_columns(apis_df: pd.DataFrame) -> pd.DataFrame:
     df["API"] = df["Feature"] + "/" + df["Scenario"] + "/" + df["Endpoint"]
     for col in [
         "Avg ResTime in sec", "Min ResTime in sec", "MaxRes Time in sec",
-        "90thPercentile Resp Time in Sec", "95thPercentile Resp Time in Sec",
-        "99thPercentile Resp Time in Sec", "sampleCount", "errorCount", "errorPct",
+        "sampleCount", "errorCount", "errorPct",
     ]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    df["SLA Sec"] = df["Feature"].str.upper().str.startswith("ASKAI").map({True: 10, False: 2})
+    df["SLA Sec"] = 3.0
     df["SLA Status"] = (
         (df["Avg ResTime in sec"] <= df["SLA Sec"])
         & (df["Min ResTime in sec"] <= df["SLA Sec"])
         & (df["MaxRes Time in sec"] <= df["SLA Sec"])
-        & (df["95thPercentile Resp Time in Sec"] <= df["SLA Sec"])
     ).map({True: "PASS", False: "FAIL"})
     df["SLA Breach Sec"] = (df["Avg ResTime in sec"] - df["SLA Sec"]).clip(lower=0).round(2)
-    df["Track Type"] = df["Feature"].str.upper().str.startswith("ASKAI").map({True: "AskAI", False: "Other"})
+    df["Track Type"] = "UI"
     return df
 
 
@@ -2675,7 +2682,7 @@ def add_region_to_frames(run_frames: List[Dict[str, pd.DataFrame]]) -> List[Dict
 
 def summarize_run(df: pd.DataFrame) -> Dict[str, float]:
     if df.empty:
-        return dict(avg_sec=0, success_rate=0, error_rate=0, transactions=0, performance_score=0, sla_compliance=0, errors=0, samples=0, p95_sec=0, max_sec=0)
+        return dict(avg_sec=0, min_sec=0, success_rate=0, error_rate=0, transactions=0, performance_score=0, sla_compliance=0, errors=0, samples=0, max_sec=0)
     samples = pd.to_numeric(df.get("sampleCount", 0), errors="coerce").fillna(0).sum()
     errors = pd.to_numeric(df.get("errorCount", 0), errors="coerce").fillna(0).sum()
     success_rate = round(((samples - errors) / samples) * 100, 2) if samples else 0
@@ -2684,6 +2691,7 @@ def summarize_run(df: pd.DataFrame) -> Dict[str, float]:
     score = round(max(0, min(100, sla_pass_pct - error_rate)), 2)
     return dict(
         avg_sec=round(float(df["Avg ResTime in sec"].mean()), 2),
+        min_sec=round(float(df["Min ResTime in sec"].min()), 2) if "Min ResTime in sec" in df.columns else 0,
         success_rate=success_rate,
         error_rate=error_rate,
         transactions=int(len(df)),
@@ -2691,7 +2699,6 @@ def summarize_run(df: pd.DataFrame) -> Dict[str, float]:
         sla_compliance=sla_pass_pct,
         errors=int(errors),
         samples=int(samples),
-        p95_sec=round(float(df["95thPercentile Resp Time in Sec"].mean()), 2) if "95thPercentile Resp Time in Sec" in df.columns else 0,
         max_sec=round(float(df["MaxRes Time in sec"].max()), 2) if "MaxRes Time in sec" in df.columns else 0,
     )
 
@@ -2700,18 +2707,18 @@ def safe_cols(df: pd.DataFrame, cols: List[str]) -> List[str]:
     return [c for c in cols if c in df.columns]
 
 
+def is_excluded_ui_metric(name: str) -> bool:
+    norm = sanitize_column_name(name)
+    return any(norm == token or norm.startswith(f"{token}_") for token in UI_EXCLUDED_METRICS)
+
+
 def track_summary(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
     work = df.copy()
-    if "Track Type" not in work.columns:
-        if "Feature" in work.columns:
-            work["Track Type"] = work["Feature"].astype(str).str.upper().str.startswith("ASKAI").map({True: "AskAI", False: "Other"})
-        else:
-            work["Track Type"] = "Other"
     for col, default in {
         "Avg ResTime in sec": 0,
-        "95thPercentile Resp Time in Sec": 0,
+        "Min ResTime in sec": 0,
         "MaxRes Time in sec": 0,
         "errorCount": 0,
         "errorPct": 0,
@@ -2723,11 +2730,11 @@ def track_summary(df: pd.DataFrame) -> pd.DataFrame:
             work[col] = default
 
     out = (
-        work.groupby(["Feature", "Track Type"], dropna=False)
+        work.groupby(["Feature"], dropna=False)
         .agg(
             APIs=("Feature", "count"),
             Avg_Sec=("Avg ResTime in sec", "mean"),
-            P95_Sec=("95thPercentile Resp Time in Sec", "mean"),
+            Min_Sec=("Min ResTime in sec", "min"),
             Max_Sec=("MaxRes Time in sec", "max"),
             Errors=("errorCount", "sum"),
             ErrorPct=("errorPct", "mean"),
@@ -2737,14 +2744,14 @@ def track_summary(df: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
     out["SLA Fail %"] = (out["SLA_Fails"] / out["APIs"] * 100).round(2)
-    for col in ["Avg_Sec", "P95_Sec", "Max_Sec", "ErrorPct"]:
+    for col in ["Avg_Sec", "Min_Sec", "Max_Sec", "ErrorPct"]:
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0).round(2)
-    return out.sort_values(["P95_Sec", "Avg_Sec", "Errors"], ascending=False)
+    return out.sort_values(["Max_Sec", "Avg_Sec", "Errors"], ascending=False)
 
 
-def sla_color_for_track(track_name: str, p95_value: float) -> float:
+def sla_color_for_track(track_name: str, metric_value: float) -> float:
     threshold = 10 if str(track_name).upper().startswith("ASKAI") else 2
-    return 1 if float(p95_value or 0) < threshold else 0
+    return 1 if float(metric_value or 0) < threshold else 0
 
 
 def combined_df(run_frames: List[Dict[str, pd.DataFrame]]) -> pd.DataFrame:
@@ -3013,7 +3020,10 @@ def dashboard_view_tabs() -> str:
     if "nav_target" in st.session_state:
         current_tab = st.session_state.pop("nav_target")
 
-    valid_tabs = ["Overview", "Track Comparison", "Detailed Report", "Chatbot"]
+    active_track = canonical_track_name(st.session_state.get("active_track") or params.get("track", "") or TRACK_API)
+    valid_tabs = ["Overview", "Track Comparison", "Chatbot"]
+    if active_track != TRACK_UI:
+        valid_tabs.insert(2, "Detailed Report")
     legacy_tabs = {"Drilldown": "Detailed Report", "Compare": "Track Comparison", "Reports": "Overview", "Trends": "Overview"}
     current_tab = legacy_tabs.get(current_tab, current_tab)
     if current_tab not in valid_tabs:
@@ -3025,10 +3035,11 @@ def dashboard_view_tabs() -> str:
     tabs = [
         ("Overview", "◈  Overview"),
         ("Track Comparison", "▥  Track Comparison"),
-        ("Detailed Report", "▣  Detailed Report"),
         ("Chatbot", "●  AI Chatbot"),
     ]
-    tab_cols = st.columns([1.05, 1.42, 1.32, 1.15], gap="small")
+    if active_track != TRACK_UI:
+        tabs.insert(2, ("Detailed Report", "▣  Detailed Report"))
+    tab_cols = st.columns([1.05, 1.42, 1.32, 1.15][:len(tabs)], gap="small")
     for col, (tab_value, tab_label) in zip(tab_cols, tabs):
         if col.button(
             tab_label,
@@ -3512,7 +3523,7 @@ def auto_insights(run_frames: List[Dict[str, pd.DataFrame]]) -> List[Tuple[str, 
         result.append(("!", "#ef4444", f"{worst['Region']} has highest error rate at {worst['error_rate']}%."))
     if not tracks.empty:
         worst_track = tracks.iloc[0]
-        result.append(("⚠", "#f59e0b", f"{worst_track['Feature']} is top contributor for P95 latency at {worst_track['P95_Sec']}s."))
+        result.append(("⚠", "#f59e0b", f"{worst_track['Feature']} has highest max latency at {worst_track['Max_Sec']}s."))
     result.append(("i", "#2563eb", f"Overall SLA compliance is {s['sla_compliance']}% with {s['errors']:,} errors."))
     return result[:5]
 
@@ -3564,20 +3575,14 @@ def cached_auto_insights(run_frames: List[Dict[str, pd.DataFrame]]) -> List[Tupl
 
 def response_bucket(value: float, is_askai: bool) -> str:
     value = float(value or 0)
-    if is_askai:
-        if value <= 10:
-            return "0-10s %"
-        if value <= 20:
-            return "10-20s %"
-        if value <= 30:
-            return "20-30s %"
-        return ">30s %"
-    if value <= 2:
-        return "0-2s %"
+    if value <= 3:
+        return "0-3s %"
     if value <= 4:
         return "3-4s %"
+    if value <= 5:
+        return "4-5s %"
     if value <= 6:
-        return "4-6s %"
+        return "5-6s %"
     return ">6s %"
 
 
@@ -3592,7 +3597,7 @@ def metric_bucket_summary(df: pd.DataFrame, track: str, metric: str, is_askai: b
     if rows.empty or col not in rows.columns:
         return [0, 0, 0, 0, 0]
 
-    bucket_names = ["0-10s %", "10-20s %", "20-30s %", ">30s %"] if is_askai else ["0-2s %", "3-4s %", "4-6s %", ">6s %"]
+    bucket_names = ["0-3s %", "3-4s %", "4-5s %", "5-6s %", ">6s %"]
     counts = dict.fromkeys(bucket_names, 0)
     values = pd.to_numeric(rows[col], errors="coerce").fillna(0)
     for value in values:
@@ -3607,63 +3612,81 @@ def build_dashboard_track_comparison(run_frames: List[Dict[str, pd.DataFrame]]) 
     if not run_frames:
         return pd.DataFrame(), pd.DataFrame()
 
-    all_tracks = sorted(set().union(*[set(frames["APIs"]["Feature"].dropna().astype(str)) for frames in run_frames]))
-    all_tracks = [t for t in all_tracks if t.lower() != "total" and "select customer" not in t.lower()]
+    metric_source_frames = []
+    for frames in run_frames:
+        info = frames.get("Run_Info")
+        info_row = info.iloc[0].to_dict() if info is not None and not info.empty else {}
+        frame_track = canonical_track_name(info_row.get("Track") or infer_program_track(frames.get("Label", ""))[1])
+        metric_key = "Scenario" if frame_track == TRACK_UI else "Feature"
+        metric_source_frames.append((frames, metric_key))
 
-    askai_tracks = [t for t in all_tracks if t.upper().startswith("ASKAI")]
-    other_tracks = [t for t in all_tracks if not t.upper().startswith("ASKAI")]
+    all_tracks = sorted(
+        set().union(*[
+            set(frames["APIs"].get(metric_key, pd.Series(dtype=str)).dropna().astype(str))
+            for frames, metric_key in metric_source_frames
+        ])
+    )
+    all_tracks = [
+        t for t in all_tracks
+        if t and t.lower() != "total"
+        and "select customer" not in t.lower()
+        and not is_excluded_ui_metric(t)
+    ]
 
-    def metric_bucket_summary_for_rows(rows: pd.DataFrame, metric: str, is_askai: bool) -> List[float]:
+    other_tracks = all_tracks
+
+    def metric_bucket_summary_for_rows(rows: pd.DataFrame, metric: str) -> List[float]:
         col_map = {
             "Avg": "Avg ResTime in sec",
             "Min": "Min ResTime in sec",
             "Max": "MaxRes Time in sec",
         }
         col = col_map[metric]
-        bucket_names = ["0-10sec %", "10-20sec %", "20-30sec %", ">30sec %"] if is_askai else ["0-2sec %", "3-4sec %", "4-6sec %", ">6sec %"]
+        bucket_names = ["0-3s %", "3-4s %", "4-5s %", "5-6s %", ">6s %"]
         if rows.empty or col not in rows.columns:
-            return [0, 0, 0, 0, 0]
+            return [0, 0, 0, 0, 0, 0]
 
         counts = dict.fromkeys(bucket_names, 0)
         values = pd.to_numeric(rows[col], errors="coerce").fillna(0)
         for value in values:
-            bucket = response_bucket(float(value), is_askai).replace("s %", "sec %")
+            bucket = response_bucket(float(value), False)
             counts[bucket] = counts.get(bucket, 0) + 1
         total = len(values) if len(values) else 1
         percentages = [round(counts[name] / total * 100, 2) for name in bucket_names]
         return percentages + [round(float(values.max()), 2)]
 
-    def build_section(tracks: List[str], is_askai: bool) -> pd.DataFrame:
+    def build_section(tracks: List[str]) -> pd.DataFrame:
         rows = []
-        bucket_names = ["0-10sec %", "10-20sec %", "20-30sec %", ">30sec %"] if is_askai else ["0-2sec %", "3-4sec %", "4-6sec %", ">6sec %"]
+        bucket_names = ["0-3s %", "3-4s %", "4-5s %", "5-6s %", ">6s %"]
         row_targets = ["Total"] + tracks
 
         for target in row_targets:
             first_target_row = True
-            for frames in run_frames:
+            for frames, metric_key in metric_source_frames:
                 api_df = frames["APIs"].copy()
+                axis_col = metric_key if metric_key in api_df.columns else "Feature"
                 if target == "Total":
-                    api_rows = api_df[api_df["Feature"].astype(str).isin(tracks)] if tracks else api_df
+                    api_rows = api_df[api_df[axis_col].astype(str).isin(tracks)] if tracks else api_df
                 else:
-                    api_rows = api_df[api_df["Feature"].astype(str) == str(target)]
+                    api_rows = api_df[api_df[axis_col].astype(str) == str(target)]
 
                 display_label = run_display_label(frames)
-                for metric_index, metric in enumerate(["Avg", "Min", "Max"]):
-                    values = metric_bucket_summary_for_rows(api_rows, metric, is_askai)
+                for metric_index, metric in enumerate(["Min", "Max"]):
+                    values = metric_bucket_summary_for_rows(api_rows, metric)
                     row = {
                         "_TrackKey": target,
                         "Track": target if first_target_row else "",
                         "Result": display_label if metric_index == 0 else "",
                         "Metric": metric,
                     }
-                    for name, value in zip(bucket_names + ["Max Seconds"], values):
+                    for name, value in zip(bucket_names + ["Max s"], values):
                         row[name] = value
                     rows.append(row)
                     first_target_row = False
 
         return pd.DataFrame(rows)
 
-    return build_section(askai_tracks, True), build_section(other_tracks, False)
+    return pd.DataFrame(), build_section(other_tracks)
 
 
 def display_track_comparison_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -3685,12 +3708,12 @@ def display_bucket_label(label: str) -> str:
     return str(label).replace("sec", "s").replace(" ", "")
 
 
-def track_comparison_matrix_html(data: pd.DataFrame, is_askai: bool) -> str:
+def track_comparison_matrix_html(data: pd.DataFrame) -> str:
     if data.empty:
         return ""
 
-    metric_order = ["Avg", "Min", "Max"]
-    bucket_cols = ["0-10sec %", "10-20sec %", "20-30sec %", ">30sec %"] if is_askai else ["0-2sec %", "3-4sec %", "4-6sec %", ">6sec %"]
+    metric_order = ["Min", "Max"]
+    bucket_cols = ["0-3s %", "3-4s %", "4-5s %", "5-6s %", ">6s %"]
 
     detail = data[data["_TrackKey"] != "Total"].copy()
     if detail.empty:
@@ -3746,7 +3769,7 @@ def track_comparison_matrix_html(data: pd.DataFrame, is_askai: bool) -> str:
     for _ in results:
         for bucket in bucket_cols:
             header_second.append(f"<th>{html.escape(display_bucket_label(bucket))}</th>")
-        header_second.append('<th class="max-header">Max Seconds</th>')
+        header_second.append('<th class="max-header">Max s</th>')
     header_second.append("</tr>")
     html_rows.append("".join(header_second))
     html_rows.append("</thead>")
@@ -3764,7 +3787,7 @@ def track_comparison_matrix_html(data: pd.DataFrame, is_askai: bool) -> str:
                 for bucket in bucket_cols:
                     value = row.get(bucket, "-") if row is not None else "-"
                     row_parts.append(f'<td>{format_compare_cell(value)}</td>')
-                max_value = row.get("Max Seconds", "-") if row is not None else "-"
+                max_value = row.get("Max s", "-") if row is not None else "-"
                 row_parts.append(f'<td class="max-col">{format_compare_cell(max_value)}</td>')
 
             row_parts.append("</tr>")
@@ -3789,15 +3812,14 @@ def render_track_comparison_dashboard(run_frames: List[Dict[str, pd.DataFrame]])
                 st.caption("Total response distribution by uploaded result. Percent columns show APIs inside each response bucket.")
                 st.dataframe(display_track_comparison_df(total), use_container_width=True, hide_index=True, height=min(260, 78 + 36 * len(total)))
             if not detail.empty:
-                st.caption("Track-level breakdown using Avg, Min and Max response metrics.")
+                st.caption("Track-level breakdown using Min and Max response metrics.")
                 st.dataframe(display_track_comparison_df(detail), use_container_width=True, hide_index=True, height=height)
 
     if askai_df.empty and other_df.empty:
         return
 
     st.markdown('<div class="panel-title" style="margin-top:12px;">TRACK COMPARISON DASHBOARD</div>', unsafe_allow_html=True)
-    render_section("CIQ Support Capabilities (Assets, Assessments and Support)", other_df, 360)
-    render_section("CIQ Support Capabilities (Ask AI)", askai_df, 300)
+    render_section("Track Comparison", other_df, 380)
 
 
 def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
@@ -3895,25 +3917,14 @@ def render_compare_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
 
     askai_df, other_df = cached_track_comparison(run_frames)
 
-    st.markdown('<div class="dashboard-subtitle">AskAI Tracks</div>', unsafe_allow_html=True)
-    if not askai_df.empty:
-        askai_html = track_comparison_matrix_html(askai_df, is_askai=True)
-        if askai_html:
-            st.markdown(askai_html, unsafe_allow_html=True)
-        else:
-            st.info("No AskAI comparison rows found.")
-    else:
-        st.info("No AskAI tracks found.")
-
-    st.markdown('<div class="dashboard-subtitle">Assets / Assessments / Home / Settings / Support Tracks</div>', unsafe_allow_html=True)
     if not other_df.empty:
-        other_html = track_comparison_matrix_html(other_df, is_askai=False)
+        other_html = track_comparison_matrix_html(other_df)
         if other_html:
             st.markdown(other_html, unsafe_allow_html=True)
         else:
-            st.info("No non-AskAI comparison rows found.")
+            st.info("No comparison rows found.")
     else:
-        st.info("No non-AskAI tracks found.")
+        st.info("No comparison tracks found.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -3931,14 +3942,14 @@ def render_trends_tab(run_frames: List[Dict[str, pd.DataFrame]], compact: bool =
     if len(summary) > 0:
         display_summary = summary.copy()
         display_summary["Result"] = [run_display_label(frames) for frames in run_frames]
-        fig1 = px.line(display_summary, x="Result", y=["avg_sec", "p95_sec", "max_sec"], markers=True, title="Response Trend")
+        fig1 = px.line(display_summary, x="Result", y=["avg_sec", "min_sec", "max_sec"], markers=True, title="Response Trend")
         fig1.update_layout(height=330 if compact else 420, xaxis_title="", yaxis_title="Seconds", margin=dict(l=8, r=8, t=40, b=95), legend_title="Metric")
         st.plotly_chart(fig1, use_container_width=True)
 
         if show_table:
             table = display_summary.rename(columns={
                 "avg_sec": "Avg Sec",
-                "p95_sec": "P95 Sec",
+                "min_sec": "Min Sec",
                 "max_sec": "Max Sec",
                 "success_rate": "Success %",
                 "error_rate": "Error %",
@@ -3947,7 +3958,7 @@ def render_trends_tab(run_frames: List[Dict[str, pd.DataFrame]], compact: bool =
                 "errors": "Errors",
                 "samples": "Samples",
             })
-            needed_cols = ["Result", "Region", "Avg Sec", "P95 Sec", "Max Sec"]
+            needed_cols = ["Result", "Region", "Avg Sec", "Min Sec", "Max Sec"]
             display_table = table[safe_cols(table, needed_cols)].copy()
             if compact:
                 st.markdown(
@@ -4047,7 +4058,7 @@ def render_detailed_report_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     tracks = sorted(df["Feature"].dropna().astype(str).unique().tolist())
     selected_tracks = c1.multiselect("Track", tracks, default=tracks[: min(10, len(tracks))])
     selected_status = c2.multiselect("SLA Status", ["PASS", "FAIL"], default=["PASS", "FAIL"])
-    sort_col = c3.selectbox("Sort by", ["Avg ResTime in sec", "95thPercentile Resp Time in Sec", "99thPercentile Resp Time in Sec", "MaxRes Time in sec", "errorCount", "sampleCount"])
+    sort_col = c3.selectbox("Sort by", ["Avg ResTime in sec", "Min ResTime in sec", "MaxRes Time in sec", "errorCount", "sampleCount"])
     filtered = df[df["Feature"].isin(selected_tracks) & df["SLA Status"].isin(selected_status)].sort_values(sort_col, ascending=False)
     st.dataframe(filtered[standard_api_cols(filtered)], use_container_width=True, hide_index=True, height=650)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -4105,9 +4116,10 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     tabs_html = [
         ("Overview", "◈ Overview"),
         ("Track Comparison", "▥ Track Comparison"),
-        ("Detailed Report", "▣ Detailed Report"),
         ("Chatbot", "● AI Chatbot"),
     ]
+    if active_track != TRACK_UI:
+        tabs_html.insert(2, ("Detailed Report", "▣ Detailed Report"))
 
     nav_changed = False
     st.markdown('<div class="exact-nav-anchor"></div>', unsafe_allow_html=True)
@@ -4141,8 +4153,8 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
                 nav_changed = True
 
         st.markdown('<div class="exact-label" style="margin-top:8px;">Dashboard Views</div>', unsafe_allow_html=True)
-        v1, v2, v3, v4 = st.columns([1.05, 1.42, 1.32, 1.15], gap="small")
-        for col, (value, label) in zip([v1, v2, v3, v4], tabs_html):
+        tab_cols = st.columns([1.05, 1.42, 1.32, 1.15][:len(tabs_html)], gap="small")
+        for col, (value, label) in zip(tab_cols, tabs_html):
             if col.button(
                 label,
                 key=f"tab_fast_{sanitize_token(value)}",
@@ -4237,11 +4249,11 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             with st.container(border=True):
                 st.markdown('<div class="panel-title">Response Time</div>', unsafe_allow_html=True)
                 if not tracks.empty:
-                    chart_df = tracks.head(8).sort_values("P95_Sec")
-                    plot_df = chart_df[["Feature", "Avg_Sec", "P95_Sec", "Max_Sec"]].rename(
+                    chart_df = tracks.head(8).sort_values("Max_Sec")
+                    plot_df = chart_df[["Feature", "Avg_Sec", "Min_Sec", "Max_Sec"]].rename(
                         columns={
                             "Avg_Sec": "Avg",
-                            "P95_Sec": "95th Percentile",
+                            "Min_Sec": "Min",
                             "Max_Sec": "Max",
                         }
                     )
@@ -4250,16 +4262,18 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
                     fig.update_traces(texttemplate="%{text:.1f}s", textposition="outside")
                     fig.update_layout(height=330, margin=dict(l=8, r=10, t=5, b=95), xaxis_title="", yaxis_title="Seconds", legend_title="")
                     st.plotly_chart(fig, use_container_width=True)
-                goto_tab_button('View all APIs →', 'Detailed Report', 'view_all_apis_btn')
+                if active_track != TRACK_UI:
+                    goto_tab_button('View all APIs →', 'Detailed Report', 'view_all_apis_btn')
 
         with c2:
             with st.container(border=True):
                 st.markdown('<div class="panel-title">SLA Status</div>', unsafe_allow_html=True)
                 st.plotly_chart(sla_donut(df), use_container_width=True)
-                goto_tab_button('View SLA Breaches →', 'Detailed Report', 'view_sla_breaches_btn')
+                if active_track != TRACK_UI:
+                    goto_tab_button('View SLA Breaches →', 'Detailed Report', 'view_sla_breaches_btn')
 
         with st.container(border=True):
-            st.markdown('<div class="panel-title">SUMMARY <span class="tag">Avg buckets</span></div>', unsafe_allow_html=True)
+            st.markdown('<div class="panel-title">SUMMARY</div>', unsafe_allow_html=True)
             render_overview_comparison_summary(selected_frames)
             goto_tab_button('Open Full Comparison →', 'Track Comparison', 'overview_full_compare_btn')
 
@@ -4269,16 +4283,16 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
 
 
 def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
-    """Compact overview-only comparison. Full Avg/Min/Max details stay in Track Comparison tab."""
+    """Compact overview-only comparison. Full Min/Max details stay in Track Comparison tab."""
     askai_df, other_df = cached_track_comparison(run_frames)
 
-    def avg_total_cards(df: pd.DataFrame, title: str, buckets: List[str]) -> None:
+    def total_cards(df: pd.DataFrame, title: str, metric: str, buckets: List[str]) -> None:
         if df.empty:
             return
-        data = df[(df["_TrackKey"] == "Total") & (df["Metric"] == "Avg")].copy()
+        data = df[(df["_TrackKey"] == "Total") & (df["Metric"] == metric)].copy()
         if data.empty:
             return
-        st.markdown(f'<div class="dashboard-subtitle">{title}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="dashboard-subtitle">{title} ({metric})</div>', unsafe_allow_html=True)
         cols = st.columns(min(3, len(data)), gap="medium")
         for i, (_, row) in enumerate(data.iterrows()):
             with cols[i % len(cols)]:
@@ -4306,13 +4320,13 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
 </style>
 """, unsafe_allow_html=True)
 
-    avg_total_cards(other_df, "Assets / Assessments / Home / Settings / Support", ["0-2sec %", "3-4sec %", "4-6sec %", ">6sec %"])
-    avg_total_cards(askai_df, "AskAI", ["0-10sec %", "10-20sec %", "20-30sec %", ">30sec %"])
+    total_cards(other_df, "UI Summary", "Min", ["0-3s %", "3-4s %", "4-5s %", "5-6s %", ">6s %"])
+    total_cards(other_df, "UI Summary", "Max", ["0-3s %", "3-4s %", "4-5s %", "5-6s %", ">6s %"])
 
 
 
 def standard_api_cols(df: pd.DataFrame) -> List[str]:
-    return safe_cols(df, ["Feature", "Scenario", "Endpoint", "sampleCount", "errorCount", "errorPct", "Avg ResTime in sec", "Min ResTime in sec", "MaxRes Time in sec", "90thPercentile Resp Time in Sec", "95thPercentile Resp Time in Sec", "99thPercentile Resp Time in Sec", "SLA Sec", "SLA Status", "SLA Breach Sec"])
+    return safe_cols(df, ["Feature", "Scenario", "Endpoint", "sampleCount", "errorCount", "errorPct", "Avg ResTime in sec", "Min ResTime in sec", "MaxRes Time in sec", "SLA Sec", "SLA Status", "SLA Breach Sec"])
 
 
 def extract_top_n(question: str, default: int = 10) -> int:
@@ -4323,9 +4337,6 @@ def extract_top_n(question: str, default: int = 10) -> int:
 
 def metric_col(question: str) -> str:
     q = question.lower()
-    if "p99" in q or "99" in q: return "99thPercentile Resp Time in Sec"
-    if "p95" in q or "95" in q: return "95thPercentile Resp Time in Sec"
-    if "p90" in q or "90" in q: return "90thPercentile Resp Time in Sec"
     if "max" in q or "maximum" in q: return "MaxRes Time in sec"
     if "min" in q or "minimum" in q: return "Min ResTime in sec"
     return "Avg ResTime in sec"
@@ -4386,7 +4397,7 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
 
     if q in thanks or any(w in q for w in ["thank", "thanks", "awesome", "great job"]):
         return (
-            "You’re welcome! I can still help with report questions like: top slow APIs, SLA breaches, worst tracks, top errors, P95/P99, sample count, or region comparison.",
+            "You’re welcome! I can still help with report questions like: top slow APIs, SLA breaches, worst tracks, top errors, max/avg/min time, sample count, or region comparison.",
             None,
         )
 
@@ -4395,7 +4406,7 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
             "You can ask me things like:\n\n"
             "- What is the overall SLA summary?\n"
             "- Which APIs breached SLA?\n"
-            "- Show top 10 slow APIs by P95 or P99.\n"
+            "- Show top 10 slow APIs by max or avg response time.\n"
             "- Which tracks are worst?\n"
             "- Show top error APIs.\n"
             "- Compare APJC vs EMEA vs US.\n"
@@ -4423,7 +4434,7 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
             f"Overall for **{label}**: Health Score **{s['performance_score']}/100**, "
             f"SLA Compliance **{s['sla_compliance']}%**, Success Rate **{s['success_rate']}%**, "
             f"Error Rate **{s['error_rate']}%**, Avg Response **{s['avg_sec']} sec**, "
-            f"P95 **{s['p95_sec']} sec**, Total APIs **{s['transactions']:,}**, "
+            f"Min **{s['min_sec']} sec**, Max **{s['max_sec']} sec**, Total APIs **{s['transactions']:,}**, "
             f"Samples **{s['samples']:,}**, Errors **{s['errors']:,}**.",
             None,
         )
@@ -4437,7 +4448,7 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
             rows.append(row)
         comp = pd.DataFrame(rows)
         if not comp.empty:
-            cols = ["Region", "Run", "avg_sec", "p95_sec", "max_sec", "success_rate", "error_rate", "sla_compliance", "performance_score", "errors", "samples"]
+            cols = ["Region", "Run", "avg_sec", "min_sec", "max_sec", "success_rate", "error_rate", "sla_compliance", "performance_score", "errors", "samples"]
             return "Here is the comparison across uploaded runs/regions.", comp[safe_cols(comp, cols)].sort_values(["Region", "Run"])
         return "I could not find multiple run/region data to compare.", None
 
@@ -4448,7 +4459,7 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
             return f"APIs passing SLA: **{len(ok):,}** out of **{len(df):,}** APIs.", ok[standard_api_cols(ok)].head(n)
         if fail.empty:
             return "Good news: I don’t see any SLA breaches in the selected report data.", None
-        return f"Top {min(n,len(fail))} SLA breaches. SLA is based on AskAI <10 sec and other APIs <2 sec.", fail[standard_api_cols(fail)].head(n)
+        return f"Top {min(n,len(fail))} SLA breaches. UI target is <3 sec.", fail[standard_api_cols(fail)].head(n)
 
     if any(w in q for w in ["error","errors","failure","failures","errorpct"]):
         err = df[pd.to_numeric(df.get("errorCount",0), errors="coerce").fillna(0)>0].copy()
@@ -4461,13 +4472,13 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
         ts = track_summary(df)
         if ts.empty:
             return "No track/feature data found in the selected report.", None
-        return "Worst tracks by P95, Avg Sec, Max Sec, Errors, and SLA Fail %.", ts.head(n)
+        return "Worst tracks by Max Sec, Avg Sec, Errors, and SLA Fail %.", ts.head(n)
 
     if any(w in q for w in ["sample","samples","count","volume","load"]):
         sample_df = df.sort_values("sampleCount", ascending=False)
         return f"Top {min(n,len(sample_df))} APIs by sample count.", sample_df[standard_api_cols(sample_df)].head(n)
 
-    if any(w in q for w in ["p90","p95","p99","percentile","90","95","99","slow","latency","response","time","avg","maximum","minimum","max","min"]):
+    if any(w in q for w in ["p90","p99","percentile","90","99","slow","latency","response","time","avg","maximum","minimum","max","min"]):
         if mcol not in df.columns:
             return f"{mcol} is not available in this report.", None
         top = df.sort_values(mcol, ascending=False)
@@ -4478,7 +4489,7 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
         return f"I found {len(matched)} matching report rows for your search.", matched.sort_values(["SLA Breach Sec","Avg ResTime in sec","errorCount"], ascending=False)[standard_api_cols(matched)].head(n)
 
     return (
-        "I can answer normal greetings and report-related questions. For this dashboard, please ask about SLA, slow APIs, P95/P99, errors, tracks, regions, samples, report context, or comparisons. "
+        "I can answer normal greetings and report-related questions. For this dashboard, please ask about SLA, slow APIs, max/avg/min times, errors, tracks, regions, samples, report context, or comparisons. "
         "For unrelated topics, I’ll keep the answer focused on this uploaded performance report.",
         None,
     )
@@ -4488,7 +4499,7 @@ def render_chatbot(run_frames: List[Dict[str, pd.DataFrame]], key_suffix: str = 
     st.markdown('<div class="chat-card"><div class="chat-header">AI ASSISTANT</div>', unsafe_allow_html=True)
     st.write("Hi! I can chat normally and answer questions from this uploaded performance report.")
     with st.expander("Try asking me", expanded=True):
-        st.write("- Hi / Bye\n- Give overall summary\n- Top slow APIs by P95 or P99\n- Which APIs breached SLA?\n- Top error APIs\n- Compare APJC, EMEA and US\n- Worst tracks\n- What is report date and duration?")
+        st.write("- Hi / Bye\n- Give overall summary\n- Top slow APIs by max response\n- Which APIs breached SLA?\n- Top error APIs\n- Compare APJC, EMEA and US\n- Worst tracks\n- What is report date and duration?")
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -4545,12 +4556,14 @@ def render_non_api_track_view(track_name: str) -> None:
             return
 
         avg_value = round(float(pd.to_numeric(focus[metric_col_name], errors="coerce").fillna(0).mean()), 2)
-        p95_value = round(float(pd.to_numeric(focus["95thPercentile Resp Time in Sec"], errors="coerce").fillna(0).mean()), 2)
+        min_value = round(float(pd.to_numeric(focus["Min ResTime in sec"], errors="coerce").fillna(0).min()), 2) if "Min ResTime in sec" in focus.columns else 0.0
+        max_value = round(float(pd.to_numeric(focus["MaxRes Time in sec"], errors="coerce").fillna(0).max()), 2)
         pass_pct = round(float((focus["SLA Status"] == "PASS").mean() * 100), 2)
-        k1, k2, k3 = st.columns(3)
+        k1, k2, k3, k4 = st.columns(4)
         k1.metric(metric_title, f"{avg_value}s")
-        k2.metric("95th Percentile", f"{p95_value}s")
-        k3.metric("SLA Pass %", f"{pass_pct}%")
+        k2.metric("Min", f"{min_value}s")
+        k3.metric("Max", f"{max_value}s")
+        k4.metric("SLA Pass %", f"{pass_pct}%")
 
         region_comp = focus.groupby(["Region", "Run"], as_index=False)[metric_col_name].mean()
         fig = px.bar(region_comp, x="Region", y=metric_col_name, color="Run", barmode="group", title=f"{track_name}: Region Comparison")
@@ -4560,7 +4573,7 @@ def render_non_api_track_view(track_name: str) -> None:
         regions = sorted(focus["Region"].dropna().astype(str).unique().tolist())
         selected_region = st.selectbox(f"{track_name} Region Drilldown", ["All"] + regions, key=f"{track_name}_region_drilldown")
         region_df = focus if selected_region == "All" else focus[focus["Region"].astype(str) == selected_region]
-        detail_cols = safe_cols(region_df, ["Run", "Region", "Feature", "Scenario", "Avg ResTime in sec", "95thPercentile Resp Time in Sec", "SLA Sec", "SLA Status", "errorCount", "sampleCount"])
+        detail_cols = safe_cols(region_df, ["Run", "Region", "Feature", "Scenario", "Avg ResTime in sec", "Min ResTime in sec", "MaxRes Time in sec", "SLA Sec", "SLA Status", "errorCount", "sampleCount"])
         st.dataframe(region_df[detail_cols].sort_values("Avg ResTime in sec", ascending=False), use_container_width=True, hide_index=True, height=min(460, 72 + 34 * len(region_df)))
         return
 
@@ -5067,15 +5080,12 @@ def numeric_scalar(value, default: float = 0.0) -> float:
 
 def make_api_like_row(feature: str, scenario: str, values: pd.Series, sla_sec: float, higher_is_better: bool = False) -> Dict[str, object]:
     if values.empty:
-        avg_v = min_v = max_v = p90_v = p95_v = p99_v = 0.0
+        avg_v = min_v = max_v = 0.0
         sample_count = 0
     else:
         avg_v = round(float(values.mean()), 3)
         min_v = round(float(values.min()), 3)
         max_v = round(float(values.max()), 3)
-        p90_v = round(float(values.quantile(0.90)), 3)
-        p95_v = round(float(values.quantile(0.95)), 3)
-        p99_v = round(float(values.quantile(0.99)), 3)
         sample_count = int(values.count())
 
     if higher_is_better:
@@ -5099,9 +5109,6 @@ def make_api_like_row(feature: str, scenario: str, values: pd.Series, sla_sec: f
         "Avg ResTime in sec": avg_v,
         "Min ResTime in sec": min_v,
         "MaxRes Time in sec": max_v,
-        "90thPercentile Resp Time in Sec": p90_v,
-        "95thPercentile Resp Time in Sec": p95_v,
-        "99thPercentile Resp Time in Sec": p99_v,
         "SLA Sec": float(sla_sec),
         "SLA Status": "PASS" if pass_status else "FAIL",
         "SLA Breach Sec": breach_sec,
@@ -5115,7 +5122,6 @@ def build_api_like_df_from_csv(csv_path: Path, track_name: str) -> pd.DataFrame:
         return pd.DataFrame(columns=standard_api_cols(pd.DataFrame(columns=[
             "Feature", "Scenario", "Endpoint", "sampleCount", "errorCount", "errorPct",
             "Avg ResTime in sec", "Min ResTime in sec", "MaxRes Time in sec",
-            "90thPercentile Resp Time in Sec", "95thPercentile Resp Time in Sec", "99thPercentile Resp Time in Sec",
             "SLA Sec", "SLA Status", "SLA Breach Sec",
         ])))
 
@@ -5130,15 +5136,33 @@ def build_api_like_df_from_csv(csv_path: Path, track_name: str) -> pd.DataFrame:
             "SI": [r"\bsi\b", r"speed_index"],
             "PERFORMANCE": [r"performance", r"perf_score", r"score"],
         }
+        used_cols = set()
         for metric, patterns in metric_map.items():
             col = pick_first_matching_column(raw, patterns)
             series = to_numeric_series(raw, col)
             if series.empty:
                 continue
+            if col:
+                used_cols.add(col)
             if metric == "PERFORMANCE":
-                rows.append(make_api_like_row("UI", metric, series, UI_SLA_THRESHOLDS[metric], higher_is_better=True))
+                rows.append(make_api_like_row(metric, metric, series, UI_SLA_THRESHOLDS[metric], higher_is_better=True))
             else:
-                rows.append(make_api_like_row("UI", metric, series, 3.0, higher_is_better=False))
+                rows.append(make_api_like_row(metric, metric, series, 3.0, higher_is_better=False))
+
+        for col in raw.columns:
+            if col in used_cols:
+                continue
+            series = to_numeric_series(raw, col)
+            if series.empty:
+                continue
+            name = str(col)
+            norm = sanitize_column_name(name)
+            if is_excluded_ui_metric(name):
+                continue
+            if re.search(r"performance|score", norm):
+                rows.append(make_api_like_row(name, name, series, UI_SLA_THRESHOLDS["PERFORMANCE"], higher_is_better=True))
+            else:
+                rows.append(make_api_like_row(name, name, series, 3.0, higher_is_better=False))
 
         if not rows:
             for col in raw.columns:
@@ -5147,17 +5171,16 @@ def build_api_like_df_from_csv(csv_path: Path, track_name: str) -> pd.DataFrame:
                     continue
                 name = str(col)
                 norm = sanitize_column_name(name)
+                if is_excluded_ui_metric(name):
+                    continue
                 if re.search(r"performance|score", norm):
-                    rows.append(make_api_like_row("UI", name, series, UI_SLA_THRESHOLDS["PERFORMANCE"], higher_is_better=True))
+                    rows.append(make_api_like_row(name, name, series, UI_SLA_THRESHOLDS["PERFORMANCE"], higher_is_better=True))
                 else:
-                    rows.append(make_api_like_row("UI", name, series, 3.0, higher_is_better=False))
+                    rows.append(make_api_like_row(name, name, series, 3.0, higher_is_better=False))
     else:
         avg_col = pick_first_matching_column(raw, [r"\bavg\b", r"average", r"mean", r"response_time", r"res_time", r"latency"]) or pick_first_matching_column(raw, [r"\btime\b", r"sec", r"ms"])
         min_col = pick_first_matching_column(raw, [r"\bmin\b"])
         max_col = pick_first_matching_column(raw, [r"\bmax\b"])
-        p90_col = pick_first_matching_column(raw, [r"\bp90\b", r"90th"])
-        p95_col = pick_first_matching_column(raw, [r"\bp95\b", r"95th"])
-        p99_col = pick_first_matching_column(raw, [r"\bp99\b", r"99th"])
         sample_col = pick_first_matching_column(raw, [r"sample", r"count", r"requests", r"hits"])
         error_col = pick_first_matching_column(raw, [r"error_count", r"errors", r"failed", r"failures"])
         error_pct_col = pick_first_matching_column(raw, [r"error_pct", r"error_percent", r"failure_pct", r"failure_percent"])
@@ -5170,16 +5193,13 @@ def build_api_like_df_from_csv(csv_path: Path, track_name: str) -> pd.DataFrame:
                 avg_v = numeric_scalar(row.get(avg_col), 0)
                 min_v = numeric_scalar(row.get(min_col), avg_v)
                 max_v = numeric_scalar(row.get(max_col), avg_v)
-                p90_v = numeric_scalar(row.get(p90_col), avg_v)
-                p95_v = numeric_scalar(row.get(p95_col), avg_v)
-                p99_v = numeric_scalar(row.get(p99_col), avg_v)
                 sample_count = max(1, int(numeric_scalar(row.get(sample_col), 1)))
                 error_count = max(0, int(numeric_scalar(row.get(error_col), 0)))
                 error_pct_raw = numeric_scalar(row.get(error_pct_col), -1)
                 error_pct = error_pct_raw if error_pct_raw >= 0 else (error_count / sample_count * 100 if sample_count else 0)
                 feature = str(row.get(feature_col) or track_name)
                 scenario = str(row.get(scenario_col) or f"{track_name}-{idx+1}")
-                pass_status = (avg_v <= sla_sec and min_v <= sla_sec and max_v <= sla_sec and p95_v <= sla_sec)
+                pass_status = (avg_v <= sla_sec and min_v <= sla_sec and max_v <= sla_sec)
                 rows.append({
                     "Feature": feature,
                     "Scenario": scenario,
@@ -5191,9 +5211,6 @@ def build_api_like_df_from_csv(csv_path: Path, track_name: str) -> pd.DataFrame:
                     "Avg ResTime in sec": round(avg_v, 3),
                     "Min ResTime in sec": round(min_v, 3),
                     "MaxRes Time in sec": round(max_v, 3),
-                    "90thPercentile Resp Time in Sec": round(p90_v, 3),
-                    "95thPercentile Resp Time in Sec": round(p95_v, 3),
-                    "99thPercentile Resp Time in Sec": round(p99_v, 3),
                     "SLA Sec": float(sla_sec),
                     "SLA Status": "PASS" if pass_status else "FAIL",
                     "SLA Breach Sec": round(max(avg_v - sla_sec, 0.0), 3),
@@ -5215,7 +5232,6 @@ def build_api_like_df_from_csv(csv_path: Path, track_name: str) -> pd.DataFrame:
         return pd.DataFrame(columns=[
             "Feature", "Scenario", "Endpoint", "sampleCount", "errorCount", "errorPct",
             "Avg ResTime in sec", "Min ResTime in sec", "MaxRes Time in sec",
-            "90thPercentile Resp Time in Sec", "95thPercentile Resp Time in Sec", "99thPercentile Resp Time in Sec",
             "SLA Sec", "SLA Status", "SLA Breach Sec", "Track Type",
         ])
     return df
@@ -5974,3 +5990,6 @@ else:
         render_executive_dashboard(st.session_state.run_frames)
     else:
         render_management_landing_page()
+    if active_track == TRACK_UI and selected_tab == "Detailed Report":
+        st.session_state["dashboard_tab"] = "Overview"
+        selected_tab = "Overview"
