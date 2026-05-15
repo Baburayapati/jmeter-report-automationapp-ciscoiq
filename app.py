@@ -4103,15 +4103,21 @@ def render_detailed_report_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             st.info("No UI metrics available.")
             st.markdown("</div>", unsafe_allow_html=True)
             return
-        speed_df = df[df["Scenario"].astype(str).map(is_speed_index_metric)] if "Scenario" in df.columns else pd.DataFrame()
-        speed_pass = round(float(speed_df["SLA Status"].astype(str).str.upper().eq("PASS").mean() * 100), 2) if not speed_df.empty else 0
+        raw_detail = build_ui_raw_detail_df(run_frames)
+        speed_rows_count = 0
+        speed_pass = 0.0
+        if not raw_detail.empty:
+            speed_col = pick_ui_speed_index_column(raw_detail)
+            speed_vals = pd.to_numeric(raw_detail.get(speed_col, pd.Series(dtype=float)), errors="coerce").dropna() if speed_col else pd.Series(dtype=float)
+            if not speed_vals.empty:
+                speed_rows_count = int(len(speed_vals))
+                speed_pass = round(float((speed_vals <= 3.0).mean() * 100), 2)
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Speed Index Rows", f"{len(speed_df):,}")
+        c1.metric("Speed Index Rows", f"{speed_rows_count:,}")
         c2.metric("Speed Index SLA", "< 3s")
         c3.metric("Speed Index Pass %", f"{speed_pass:.2f}%")
 
-        raw_detail = build_ui_raw_detail_df(run_frames)
         if raw_detail.empty:
             st.info("No raw UI CSV rows available for detailed view.")
         else:
@@ -4354,13 +4360,16 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
     def speed_index_cards(frames_list: List[Dict[str, pd.DataFrame]]) -> None:
         cards: List[Tuple[str, Dict[str, float]]] = []
         for frames in frames_list:
-            apis = frames.get("APIs", pd.DataFrame())
-            if apis.empty or "Scenario" not in apis.columns:
+            raw_df = frames.get("UI_Raw")
+            if raw_df is None or raw_df.empty:
                 continue
-            speed_rows = apis[apis["Scenario"].astype(str).map(is_speed_index_metric)]
-            if speed_rows.empty:
+            speed_col = pick_ui_speed_index_column(raw_df)
+            if not speed_col:
                 continue
-            percentages = ui_speed_index_bucket_percentages(speed_rows.get("Avg ResTime in sec", pd.Series(dtype=float)))
+            speed_values = pd.to_numeric(raw_df.get(speed_col, pd.Series(dtype=float)), errors="coerce").dropna()
+            if speed_values.empty:
+                continue
+            percentages = ui_speed_index_bucket_percentages(speed_values)
             cards.append((run_display_label(frames), percentages))
 
         if not cards:
@@ -5827,6 +5836,12 @@ def load_saved_dashboard_frames() -> List[Dict[str, pd.DataFrame]]:
                 inferred = infer_saved_report_info(file_name)
                 region = item.get("region") or inferred.get("region", "Unknown")
                 apis_df = build_api_like_df_from_csv(path, track_name)
+                ui_raw_df = pd.DataFrame()
+                if track_name == TRACK_UI:
+                    try:
+                        ui_raw_df = pd.read_csv(path)
+                    except Exception:
+                        ui_raw_df = pd.DataFrame()
                 run_info = pd.DataFrame([{
                     "Report File": file_name,
                     "Concurrent Users": item.get("users") or inferred.get("users", "N/A"),
@@ -5845,6 +5860,7 @@ def load_saved_dashboard_frames() -> List[Dict[str, pd.DataFrame]]:
                     "Label": label,
                     "Region": region,
                     "APIs": apis_df,
+                    "UI_Raw": ui_raw_df,
                     "Transactions": pd.DataFrame(),
                     "Errors": apis_df[apis_df.get("errorCount", 0) > 0].copy() if not apis_df.empty else pd.DataFrame(),
                     "Run_Info": run_info,
