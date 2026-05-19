@@ -2424,6 +2424,24 @@ st.markdown(
   .nav-tabs {display:none;}
 }
 
+/* Dashboard dropdown enhancements */
+.dropdown-blue-label {
+  color:#0f2b68;
+  font-size:13px;
+  font-weight:800;
+  margin:2px 0 4px 2px;
+}
+div[data-testid="stSelectbox"] > div[data-baseweb="select"] {
+  background: linear-gradient(180deg,#eaf2ff 0%, #dce8ff 100%) !important;
+  border: 1px solid #8fb2f2 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 6px 18px rgba(37,99,235,.12) !important;
+}
+div[data-testid="stSelectbox"] div[role="combobox"] {
+  color: #0f2b68 !important;
+  font-weight: 700 !important;
+}
+
 /* Executive KPI metric styling */
 div[data-testid="stMetric"] {
     background: #ffffff !important;
@@ -3442,12 +3460,6 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
     if meta.empty:
         return []
 
-    if forced_region and forced_region != "All":
-        forced_region_norm = str(forced_region).strip().lower()
-        meta = meta[meta["Region"].astype(str).str.strip().str.lower() == forced_region_norm].copy()
-        if meta.empty:
-            return []
-
     files = meta["Result Option"].astype(str).tolist()
     dedup = {}
     for i, name in enumerate(files):
@@ -3461,7 +3473,6 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
 
     file_options = [f"Compare Selected ({len(files)})"] + files
     date_options = [f"All Dates ({len(dates)})"] + dates
-    region_options = [", ".join(regions) + f" ({len(regions)})"] + regions
 
     with st.container(border=True):
         st.markdown(
@@ -3481,7 +3492,7 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
 }
 </style>
 <div class="filter-card-title">DATA & FILTERS</div>
-<div class="filter-help">Choose reports, test date and region, then apply.</div>
+<div class="filter-help">Choose reports and test date, then apply.</div>
 """,
             unsafe_allow_html=True,
         )
@@ -3492,15 +3503,12 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
         current_filters = all_filters.get(scope_key, {
             "file": file_options[0],
             "date": date_options[0],
-            "region": region_options[0],
         })
 
         if current_filters.get("file") not in file_options:
             current_filters["file"] = file_options[0]
         if current_filters.get("date") not in date_options:
             current_filters["date"] = date_options[0]
-        if current_filters.get("region") not in region_options:
-            current_filters["region"] = region_options[0]
 
         selected_file_choice = st.selectbox(
             "Result File",
@@ -3514,13 +3522,6 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
             index=date_options.index(current_filters.get("date", date_options[0])),
             key=f"dashboard_filter_date_choice_{scope_token}",
         )
-        selected_region_choice = st.selectbox(
-            "Region",
-            region_options,
-            index=region_options.index(current_filters.get("region", region_options[0])),
-            key=f"dashboard_filter_region_choice_{scope_token}",
-        )
-
         apply_clicked = st.button("Apply Filters", type="primary", use_container_width=True, key=f"dashboard_apply_filters_{scope_token}")
         reset_clicked = st.button("Reset Filters", use_container_width=True, key=f"dashboard_reset_filters_{scope_token}")
 
@@ -3528,7 +3529,6 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
             all_filters[scope_key] = {
                 "file": file_options[0],
                 "date": date_options[0],
-                "region": region_options[0],
             }
             st.session_state["applied_dashboard_filters"] = all_filters
             st.rerun()
@@ -3536,19 +3536,17 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
             all_filters[scope_key] = {
                 "file": selected_file_choice,
                 "date": selected_date_choice,
-                "region": selected_region_choice,
             }
             st.session_state["applied_dashboard_filters"] = all_filters
 
         active_filters = st.session_state.get("applied_dashboard_filters", {}).get(scope_key, {
             "file": file_options[0],
             "date": date_options[0],
-            "region": region_options[0],
         })
 
     selected_files = files if active_filters.get("file") == file_options[0] else [active_filters.get("file")]
     selected_dates = dates if active_filters.get("date") == date_options[0] else [active_filters.get("date")]
-    selected_regions = regions if active_filters.get("region") == region_options[0] else [active_filters.get("region")]
+    selected_regions = regions
     if forced_region and forced_region != "All":
         selected_regions = [forced_region]
 
@@ -4210,19 +4208,19 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     p_col, t_col, d_col, r_col = st.columns([1.7, 1.35, 1.35, 1.1], gap="small")
 
     with p_col:
-        st.markdown('<div class="exact-label">Select Program</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dropdown-blue-label">Select Program</div>', unsafe_allow_html=True)
         selected_program = st.selectbox("Program", program_values, index=program_values.index(active_program), label_visibility="collapsed", key="program_dropdown")
 
     with t_col:
-        st.markdown('<div class="exact-label">Program Track</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dropdown-blue-label">Program Track</div>', unsafe_allow_html=True)
         selected_track = st.selectbox("Track", tracks_html, index=tracks_html.index(active_track), label_visibility="collapsed", key="track_dropdown")
 
     with d_col:
-        st.markdown('<div class="exact-label">Dashboard View</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dropdown-blue-label">Dashboard View</div>', unsafe_allow_html=True)
         selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(selected_tab if selected_tab in tabs_html else "Overview"), label_visibility="collapsed", key="dashboard_dropdown")
 
     with r_col:
-        st.markdown('<div class="exact-label">Region</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dropdown-blue-label">Region</div>', unsafe_allow_html=True)
         selected_region = st.selectbox("Region", region_options, index=region_options.index(active_region), label_visibility="collapsed", key="region_dropdown")
 
     if selected_program != active_program:
