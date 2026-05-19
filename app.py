@@ -4296,7 +4296,6 @@ def goto_tab_button(label: str, tab_name: str, key: str) -> None:
     if st.button(label, key=key):
         st.session_state["nav_target"] = tab_name
         st.session_state["dashboard_tab"] = tab_name
-        st.session_state["dashboard_dropdown"] = tab_name
         run_id_value = params.get("run_id", "") or st.session_state.get("run_id", "")
         if run_id_value:
             st.query_params["view"] = "dashboard"
@@ -4312,7 +4311,7 @@ def goto_tab_button(label: str, tab_name: str, key: str) -> None:
 def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
     # Fast in-app navigation with screenshot-like layout.
     current_run_id = params.get("run_id", "") or st.session_state.get("run_id", "")
-    selected_tab = st.session_state.get("dashboard_tab") or params.get("tab", "") or "Overview"
+    selected_tab = params.get("tab", "") or st.session_state.get("dashboard_tab") or "Overview"
     legacy_tabs = {"Drilldown": "Detailed Report", "Compare": "Track Comparison", "Reports": "Overview", "Trends": "Overview"}
     selected_tab = legacy_tabs.get(selected_tab, selected_tab)
     if selected_tab not in ["Overview", "Track Comparison", "Detailed Report", "Defect details", "Chatbot"]:
@@ -6158,7 +6157,36 @@ def load_static_saved_dashboard() -> bool:
         return True
 
     st.session_state["run_frames"] = frames
-    st.session_state["excel_bytes"] = None
+    excel_bytes = None
+    try:
+        api_items = [
+            item for item in uploads
+            if canonical_track_name(item.get("track") or infer_program_track(item.get("file_name", ""))[1]) == TRACK_API
+        ]
+        api_paths = []
+        api_labels = []
+        for item in api_items:
+            saved_name = item.get("saved_name", "")
+            saved_path = SAVED_REPORTS_DIR / saved_name
+            if not saved_path.exists() or saved_path.suffix.lower() != ".json":
+                continue
+            api_paths.append(saved_path)
+            api_labels.append(Path(item.get("file_name", saved_path.name)).stem)
+
+        if len(api_paths) == 1:
+            p = api_paths[0]
+            excel_bytes = cached_excel_bytes_for_saved_api(str(p), api_labels[0], p.stat().st_mtime)
+        elif len(api_paths) > 1:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output_path = Path(tmpdir) / "JMeter_Report.xlsx"
+                build_comparison_report(api_paths, api_labels, output_path)
+                excel_bytes = output_path.read_bytes()
+        else:
+            excel_bytes = build_excel_bytes_from_frames(frames)
+    except Exception:
+        excel_bytes = None
+
+    st.session_state["excel_bytes"] = excel_bytes
     st.session_state["report_file_name"] = "JMeter_Report.xlsx"
     st.session_state["messages"] = []
     st.session_state["dashboard_tab"] = "Overview"
