@@ -2440,6 +2440,63 @@ div[data-testid="stSelectbox"] > div[data-baseweb="select"] {
 div[data-testid="stSelectbox"] div[role="combobox"] {
   color: #0f2b68 !important;
   font-weight: 700 !important;
+  font-size: 15px !important;
+}
+
+/* Typography normalization across dashboard */
+:root {
+  --font-ui: "Segoe UI", "SF Pro Text", "Inter", sans-serif;
+  --fs-title: 18px;
+  --fs-subtitle: 16px;
+  --fs-body: 14px;
+  --fs-caption: 13px;
+}
+
+html, body, .stApp,
+[data-testid="stMarkdownContainer"],
+[data-testid="stText"],
+[data-testid="stCaptionContainer"] {
+  font-family: var(--font-ui) !important;
+}
+
+.panel-title,
+.filter-card-title,
+.upload-program-title,
+.dashboard-subtitle,
+.exact-label,
+.exact-label.white {
+  font-size: var(--fs-title) !important;
+  line-height: 1.25 !important;
+}
+
+.dropdown-blue-label,
+.filter-help,
+.overview-title-sub,
+.action-card-text,
+.feature p,
+.insight-item,
+[data-testid="stCaptionContainer"] {
+  font-size: var(--fs-body) !important;
+  line-height: 1.4 !important;
+}
+
+div[data-testid="stSelectbox"] label,
+div[data-testid="stMultiSelect"] label,
+div[data-testid="stDateInput"] label,
+div[data-testid="stTextInput"] label,
+div[data-testid="stFileUploader"] label {
+  font-size: var(--fs-subtitle) !important;
+  font-weight: 700 !important;
+}
+
+.stButton > button,
+div[data-testid="stDownloadButton"] > button {
+  font-size: var(--fs-subtitle) !important;
+}
+
+div[data-testid="stDataFrame"] th,
+div[data-testid="stDataFrame"] td {
+  font-size: var(--fs-body) !important;
 }
 
 /* Executive KPI metric styling */
