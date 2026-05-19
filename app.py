@@ -3144,7 +3144,7 @@ def dashboard_view_tabs() -> str:
     if "nav_target" in st.session_state:
         current_tab = st.session_state.pop("nav_target")
 
-    valid_tabs = ["Overview", "Track Comparison", "Detailed Report", "Chatbot"]
+    valid_tabs = ["Overview", "Track Comparison", "Detailed Report", "Defect details", "Chatbot"]
     legacy_tabs = {"Drilldown": "Detailed Report", "Compare": "Track Comparison", "Reports": "Overview", "Trends": "Overview"}
     current_tab = legacy_tabs.get(current_tab, current_tab)
     if current_tab not in valid_tabs:
@@ -3157,7 +3157,7 @@ def dashboard_view_tabs() -> str:
         ("Overview", "◈  Overview"),
         ("Track Comparison", "▥  Track Comparison"),
         ("Detailed Report", "▣  Detailed Report"),
-        ("Chatbot", "●  AI Chatbot"),
+        ("Defect details", "◉  Defect details"),
     ]
     tab_cols = st.columns([1.05, 1.42, 1.32, 1.15], gap="small")
     for col, (tab_value, tab_label) in zip(tab_cols, tabs):
@@ -3707,10 +3707,10 @@ def cached_auto_insights(run_frames: List[Dict[str, pd.DataFrame]]) -> List[Tupl
 def response_bucket(value: float, is_askai: bool) -> str:
     value = float(value or 0)
     if is_askai:
-        if value <= 15:
-            return "10-15s %"
+        if value <= 10:
+            return "0-10s %"
         if value <= 20:
-            return "15-20s %"
+            return "10-20s %"
         if value <= 30:
             return "20-30s %"
         return ">30s %"
@@ -3718,8 +3718,8 @@ def response_bucket(value: float, is_askai: bool) -> str:
         return "0-2s %"
     if value <= 4:
         return "3-4s %"
-    if value <= 5:
-        return "4-5s %"
+    if value <= 6:
+        return "4-6s %"
     return ">6s %"
 
 
@@ -3734,7 +3734,7 @@ def metric_bucket_summary(df: pd.DataFrame, track: str, metric: str, is_askai: b
     if rows.empty or col not in rows.columns:
         return [0, 0, 0, 0]
 
-    bucket_names = ["10-15s %", "15-20s %", "20-30s %", ">30s %"] if is_askai else ["0-2s %", "3-4s %", "4-5s %", ">6s %"]
+    bucket_names = ["0-10s %", "10-20s %", "20-30s %", ">30s %"] if is_askai else ["0-2s %", "3-4s %", "4-6s %", ">6s %"]
     counts = dict.fromkeys(bucket_names, 0)
     values = pd.to_numeric(rows[col], errors="coerce").fillna(0)
     for value in values:
@@ -3779,7 +3779,7 @@ def build_dashboard_track_comparison(run_frames: List[Dict[str, pd.DataFrame]]) 
             "Max": "MaxRes Time in sec",
         }
         col = col_map[metric]
-        bucket_names = ["10-15s %", "15-20s %", "20-30s %", ">30s %"] if is_askai else ["0-2s %", "3-4s %", "4-5s %", ">6s %"]
+        bucket_names = ["0-10s %", "10-20s %", "20-30s %", ">30s %"] if is_askai else ["0-2s %", "3-4s %", "4-6s %", ">6s %"]
         if rows.empty or col not in rows.columns:
             return [0, 0, 0, 0, 0]
 
@@ -3794,7 +3794,7 @@ def build_dashboard_track_comparison(run_frames: List[Dict[str, pd.DataFrame]]) 
 
     def build_section(tracks: List[str], is_askai: bool) -> pd.DataFrame:
         rows = []
-        bucket_names = ["10-15s %", "15-20s %", "20-30s %", ">30s %"] if is_askai else ["0-2s %", "3-4s %", "4-5s %", ">6s %"]
+        bucket_names = ["0-10s %", "10-20s %", "20-30s %", ">30s %"] if is_askai else ["0-2s %", "3-4s %", "4-6s %", ">6s %"]
         row_targets = ["Total"] + tracks
 
         for target in row_targets:
@@ -3808,7 +3808,7 @@ def build_dashboard_track_comparison(run_frames: List[Dict[str, pd.DataFrame]]) 
                     api_rows = api_df[api_df[axis_col].astype(str) == str(target)]
 
                 display_label = run_display_label(frames)
-                for metric_index, metric in enumerate(["Min", "Max"]):
+                for metric_index, metric in enumerate(["Avg", "Min", "Max"]):
                     values = metric_bucket_summary_for_rows(api_rows, metric, is_askai)
                     row = {
                         "_TrackKey": target,
@@ -3851,12 +3851,12 @@ def track_comparison_matrix_html(data: pd.DataFrame) -> str:
     if data.empty:
         return ""
 
-    metric_order = ["Min", "Max"]
+    metric_order = ["Avg", "Min", "Max"]
     data_cols = set(data.columns)
-    if {"10-15s %", "15-20s %", "20-30s %", ">30s %"}.issubset(data_cols):
-        bucket_cols = ["10-15s %", "15-20s %", "20-30s %", ">30s %"]
+    if {"0-10s %", "10-20s %", "20-30s %", ">30s %"}.issubset(data_cols):
+        bucket_cols = ["0-10s %", "10-20s %", "20-30s %", ">30s %"]
     else:
-        bucket_cols = ["0-2s %", "3-4s %", "4-5s %", ">6s %"]
+        bucket_cols = ["0-2s %", "3-4s %", "4-6s %", ">6s %"]
 
     detail = data[data["_TrackKey"] != "Total"].copy()
     if detail.empty:
@@ -4243,10 +4243,69 @@ def render_detailed_report_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+def render_defect_details_tab(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
+    df = combined_df(run_frames)
+    st.markdown('<div class="panel"><div class="panel-title">DEFECT DETAILS</div>', unsafe_allow_html=True)
+    if df.empty:
+        st.info("No report data available for defect details.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    work = df.copy()
+    if "errorCount" not in work.columns:
+        work["errorCount"] = 0
+    if "SLA Status" not in work.columns:
+        work["SLA Status"] = "PASS"
+
+    err_series = pd.to_numeric(work.get("errorCount", 0), errors="coerce").fillna(0)
+    defect_rows = work[(err_series > 0) | (work["SLA Status"].astype(str) == "FAIL")].copy()
+
+    if defect_rows.empty:
+        st.success("No defects found for the selected filters.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    view_cols = safe_cols(
+        defect_rows,
+        [
+            "Feature",
+            "Scenario",
+            "Endpoint",
+            "Region",
+            "sampleCount",
+            "errorCount",
+            "errorPct",
+            "Avg ResTime in sec",
+            "MaxRes Time in sec",
+            "SLA Sec",
+            "SLA Status",
+            "SLA Breach Sec",
+        ],
+    )
+    defect_rows = defect_rows.sort_values(["errorCount", "SLA Breach Sec", "MaxRes Time in sec"], ascending=False)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Defect Rows", f"{len(defect_rows):,}")
+    c2.metric("SLA Fail Rows", f"{int((defect_rows['SLA Status'].astype(str) == 'FAIL').sum()):,}")
+    c3.metric("Total Errors", f"{int(pd.to_numeric(defect_rows.get('errorCount', 0), errors='coerce').fillna(0).sum()):,}")
+    st.dataframe(defect_rows[view_cols], use_container_width=True, hide_index=True, height=650)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def goto_tab_button(label: str, tab_name: str, key: str) -> None:
     if st.button(label, key=key):
         st.session_state["nav_target"] = tab_name
         st.session_state["dashboard_tab"] = tab_name
+        st.session_state["dashboard_dropdown"] = tab_name
+        run_id_value = params.get("run_id", "") or st.session_state.get("run_id", "")
+        if run_id_value:
+            st.query_params["view"] = "dashboard"
+            st.query_params["run_id"] = run_id_value
+            st.query_params["tab"] = tab_name
+            st.query_params["program"] = st.session_state.get("active_program", PROGRAM_SAAS)
+            st.query_params["track"] = st.session_state.get("active_track", TRACK_API)
+            st.query_params["region"] = st.session_state.get("active_region", "All")
+        st.rerun()
 
 
 
@@ -4256,7 +4315,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     selected_tab = st.session_state.get("dashboard_tab") or params.get("tab", "") or "Overview"
     legacy_tabs = {"Drilldown": "Detailed Report", "Compare": "Track Comparison", "Reports": "Overview", "Trends": "Overview"}
     selected_tab = legacy_tabs.get(selected_tab, selected_tab)
-    if selected_tab not in ["Overview", "Track Comparison", "Detailed Report", "Chatbot"]:
+    if selected_tab not in ["Overview", "Track Comparison", "Detailed Report", "Defect details", "Chatbot"]:
         selected_tab = "Overview"
     st.session_state["dashboard_tab"] = selected_tab
 
@@ -4283,7 +4342,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     st.session_state["active_track"] = active_track
 
     tracks_html = ["API", "UI", "Cloud Assist Connector", "Customer Inventory Benchmarking"]
-    tabs_html = ["Overview", "Track Comparison", "Detailed Report", "Chatbot"]
+    tabs_html = ["Overview", "Track Comparison", "Detailed Report", "Defect details"]
 
     region_values = sorted({
         str(frames.get("Region", region_from_frames(frames)))
@@ -4314,7 +4373,8 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
 
     with d_col:
         st.markdown('<div class="dropdown-blue-label">Dashboard View</div>', unsafe_allow_html=True)
-        selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(selected_tab if selected_tab in tabs_html else "Overview"), label_visibility="collapsed", key="dashboard_dropdown")
+        dashboard_select_value = selected_tab if selected_tab in tabs_html else "Overview"
+        selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(dashboard_select_value), label_visibility="collapsed", key="dashboard_dropdown")
 
     with r_col:
         st.markdown('<div class="dropdown-blue-label">Region</div>', unsafe_allow_html=True)
@@ -4329,7 +4389,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
         st.session_state["active_track"] = selected_track
         st.session_state["dashboard_tab"] = "Overview"
         nav_changed = True
-    if selected_dashboard_tab != selected_tab:
+    if selected_dashboard_tab != dashboard_select_value:
         st.session_state["dashboard_tab"] = selected_dashboard_tab
         nav_changed = True
     if selected_region != active_region:
@@ -4405,13 +4465,14 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             render_compare_tab(selected_frames)
             return
 
-        if selected_tab == "Chatbot":
-            st.markdown('<div class="panel"><div class="panel-title">AI CHATBOT</div>', unsafe_allow_html=True)
-            render_chatbot(run_frames, key_suffix='tab')
-            st.markdown("</div>", unsafe_allow_html=True)
-            return
         if selected_tab == "Detailed Report":
             render_detailed_report_tab(selected_frames)
+            return
+        if selected_tab == "Defect details":
+            render_defect_details_tab(selected_frames)
+            return
+        if selected_tab == "Chatbot":
+            render_chatbot(selected_frames, key_suffix="dashboard")
             return
         render_aggregated_or_comparison_summary(selected_frames)
 
@@ -4541,12 +4602,12 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
         api_buckets = [
             ("0-2s %", None, 2.0),
             ("3-4s %", 2.000001, 4.0),
-            ("4-5s %", 4.000001, 5.0),
+            ("4-6s %", 4.000001, 6.0),
             (">6s %", 6.000001, None),
         ]
         ask_buckets = [
-            ("10-15s %", None, 15.0),
-            ("15-20s %", 15.000001, 20.0),
+            ("0-10s %", None, 10.0),
+            ("10-20s %", 10.000001, 20.0),
             ("20-30s %", 20.000001, 30.0),
             (">30s %", 30.000001, None),
         ]
@@ -4589,8 +4650,8 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
 </div>
 ''', unsafe_allow_html=True)
 
-        render_cards("API Summary", api_cards, ["0-2s %", "3-4s %", "4-5s %", ">6s %"])
-        render_cards("AskAI Summary", ask_cards, ["10-15s %", "15-20s %", "20-30s %", ">30s %"])
+        render_cards("API Summary", api_cards, ["0-2s %", "3-4s %", "4-6s %", ">6s %"])
+        render_cards("AskAI Summary", ask_cards, ["0-10s %", "10-20s %", "20-30s %", ">30s %"])
 
         if not api_cards and not ask_cards:
             st.info("No summary rows found for selected API results.")
@@ -6123,6 +6184,45 @@ def dashboard_url_for_run(run_id_value: str) -> str:
     return "?view=dashboard"
 
 
+def render_floating_chatbot_icon() -> None:
+    run_id_value = st.session_state.get("run_id", "")
+    if run_id_value:
+        chat_href = f"{dashboard_url_for_run(run_id_value)}&tab=Chatbot"
+    else:
+        chat_href = "?view=dashboard&tab=Chatbot"
+
+    st.markdown(
+        f"""
+<style>
+.floating-chatbot-launcher {{
+    position: fixed;
+    right: 22px;
+    bottom: 18px;
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    background: linear-gradient(140deg, #1d4ed8, #2563eb 55%, #3b82f6);
+    box-shadow: 0 12px 26px rgba(29, 78, 216, 0.35);
+    color: #ffffff !important;
+    text-decoration: none !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 27px;
+    font-weight: 900;
+    z-index: 10010;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+}}
+.floating-chatbot-launcher:hover {{
+    transform: translateY(-1px) scale(1.02);
+}}
+</style>
+<a class="floating-chatbot-launcher" href="{chat_href}" target="_self" title="Open AI Chatbot">💬</a>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 
 
 
@@ -6213,6 +6313,8 @@ if "report_file_name" not in st.session_state: st.session_state.report_file_name
 if "messages" not in st.session_state: st.session_state.messages = []
 if "run_id" not in st.session_state: st.session_state.run_id = ""
 if "team_authenticated" not in st.session_state: st.session_state.team_authenticated = False
+
+render_floating_chatbot_icon()
 
 if dashboard_only and run_id and run_id in dashboard_store:
     st.session_state.run_frames = dashboard_store[run_id]["run_frames"]
