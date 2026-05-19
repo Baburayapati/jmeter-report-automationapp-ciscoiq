@@ -2406,7 +2406,7 @@ footer {
   margin-bottom:16px;
 }
 .login-form-wrap {
-  max-width: 660px;
+  max-width: 420px;
   margin: 18px auto 0 auto;
 }
 .login-form-wrap [data-testid="stTextInput"] {
@@ -2419,6 +2419,10 @@ footer {
   background: #ffffff !important;
 }
 .login-form-wrap [data-testid="InputInstructions"] {
+  display: none !important;
+}
+.login-form-wrap [data-testid="stTextInput"] [data-testid="InputInstructions"],
+.login-form-wrap [data-testid="stTextInput"] div:has(> span) {
   display: none !important;
 }
 .login-form-wrap [data-testid="stTextInput"] label {
@@ -6143,11 +6147,11 @@ def team_upload_access_granted() -> bool:
         st.warning("Upload login is not configured. Add UPLOAD_USERNAME and UPLOAD_PASSWORD in Streamlit secrets.")
         return False
 
-    left, center, right = st.columns([1, 1.45, 1])
+    left, center, right = st.columns([1.35, 1, 1.35])
     with center:
         st.markdown('<div class="login-form-wrap">', unsafe_allow_html=True)
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        username = st.text_input("Username", key="login_username", placeholder="")
+        password = st.text_input("Password", type="password", key="login_password", placeholder="")
         login_clicked = st.button("Login to Upload Reports", type="primary", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
