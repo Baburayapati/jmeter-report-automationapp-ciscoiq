@@ -4268,11 +4268,20 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
         selected_frames = get_filtered_frames(run_frames, forced_region=region_focus, forced_track=active_track)
         insights = cached_auto_insights(selected_frames)
         st.markdown('<div class="side-card"><div class="panel-title">REPORT ACTIONS</div>', unsafe_allow_html=True)
-        if st.session_state.get("excel_bytes"):
+        report_bytes = st.session_state.get("excel_bytes")
+        report_name = st.session_state.get("report_file_name", "JMeter_Report.xlsx")
+        if active_track == TRACK_API and selected_frames:
+            try:
+                report_bytes = build_excel_bytes_from_frames(selected_frames)
+                report_name = "JMeter_Report.xlsx"
+            except Exception:
+                pass
+
+        if report_bytes:
             st.download_button(
-                "Download Excel Report",
-                data=st.session_state.excel_bytes,
-                file_name=st.session_state.report_file_name,
+                "⬇ Download Excel Report",
+                data=report_bytes,
+                file_name=report_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="side_panel_excel_download",
                 use_container_width=True,
@@ -5927,7 +5936,8 @@ def load_static_saved_dashboard() -> bool:
         return True
 
     st.session_state["run_frames"] = frames
-    st.session_state["excel_bytes"] = None
+    api_frames = [f for f in frames if frame_track_name(f) == TRACK_API]
+    st.session_state["excel_bytes"] = build_excel_bytes_from_frames(api_frames) if api_frames else None
     st.session_state["report_file_name"] = "JMeter_Report.xlsx"
     st.session_state["messages"] = []
     st.session_state["dashboard_tab"] = "Overview"
