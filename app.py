@@ -4487,6 +4487,81 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
 </div>
 ''', unsafe_allow_html=True)
 
+    def percentage_buckets(values: pd.Series, bucket_edges: List[Tuple[str, float | None, float | None]]) -> Dict[str, float]:
+        clean = pd.to_numeric(values, errors="coerce").dropna().astype(float)
+        counts = {name: 0 for name, _, _ in bucket_edges}
+        if clean.empty:
+            return {name: 0.0 for name, _, _ in bucket_edges}
+
+        for value in clean:
+            for name, low, high in bucket_edges:
+                low_ok = True if low is None else value >= low
+                high_ok = True if high is None else value <= high
+                if low_ok and high_ok:
+                    counts[name] += 1
+                    break
+
+        total = float(len(clean))
+        return {name: round((counts[name] / total) * 100, 2) for name, _, _ in bucket_edges}
+
+    def api_and_askai_cards(frames_list: List[Dict[str, pd.DataFrame]]) -> None:
+        api_buckets = [
+            ("0-2s %", None, 2.0),
+            ("3-4s %", 2.000001, 4.0),
+            ("4-5s %", 4.000001, 5.0),
+            (">6s %", 6.000001, None),
+        ]
+        ask_buckets = [
+            ("10-15s %", None, 15.0),
+            ("15-20s %", 15.000001, 20.0),
+            ("20-30s %", 20.000001, 30.0),
+            (">30s %", 30.000001, None),
+        ]
+
+        api_cards: List[Tuple[str, Dict[str, float]]] = []
+        ask_cards: List[Tuple[str, Dict[str, float]]] = []
+
+        for frames in frames_list:
+            apis = frames.get("APIs", pd.DataFrame())
+            if apis is None or apis.empty or "MaxRes Time in sec" not in apis.columns:
+                continue
+
+            feature_series = apis.get("Feature", pd.Series(index=apis.index, dtype=str)).astype(str)
+            ask_mask = feature_series.str.upper().str.contains("ASKAI|ASK AI", regex=True, na=False)
+
+            api_values = apis.loc[~ask_mask, "MaxRes Time in sec"]
+            ask_values = apis.loc[ask_mask, "MaxRes Time in sec"]
+            label = run_display_label(frames)
+
+            if not api_values.dropna().empty:
+                api_cards.append((label, percentage_buckets(api_values, api_buckets)))
+            if not ask_values.dropna().empty:
+                ask_cards.append((label, percentage_buckets(ask_values, ask_buckets)))
+
+        def render_cards(title: str, cards: List[Tuple[str, Dict[str, float]]], ordered_buckets: List[str]) -> None:
+            if not cards:
+                return
+            st.markdown(f'<div class="dashboard-subtitle">{title}</div>', unsafe_allow_html=True)
+            cols = st.columns(min(3, len(cards)), gap="medium")
+            for i, (label, bucket_values) in enumerate(cards):
+                with cols[i % len(cols)]:
+                    parts = []
+                    for bucket in ordered_buckets:
+                        value = float(bucket_values.get(bucket, 0) or 0)
+                        parts.append(f'<div class="compare-bucket"><span>{display_bucket_label(bucket)}</span><b>{value:.2f}%</b></div>')
+                    st.markdown(f'''
+<div class="overview-compare-card">
+  <div class="overview-compare-title">{label}</div>
+  <div class="overview-compare-grid">{"".join(parts)}</div>
+</div>
+''', unsafe_allow_html=True)
+
+        render_cards("API Summary", api_cards, ["0-2s %", "3-4s %", "4-5s %", ">6s %"])
+        render_cards("AskAI Summary", ask_cards, ["10-15s %", "15-20s %", "20-30s %", ">30s %"])
+
+        if not api_cards and not ask_cards:
+            st.info("No summary rows found for selected API results.")
+
     st.markdown("""
 <style>
 .overview-compare-card {background: linear-gradient(180deg, #f8fbff 0%, #f2f6fc 100%); border: 1px solid #d3dbe8; border-radius: 14px; padding: 12px; box-shadow: 0 10px 28px rgba(15,23,42,.06); margin-bottom: 12px;}
@@ -4502,11 +4577,7 @@ def render_overview_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]
         speed_index_cards(run_frames)
         return
 
-    _, other_df = cached_track_comparison(run_frames)
-    if other_df.empty:
-        st.info("No summary rows found for selected API results.")
-        return
-    total_cards(other_df, "API Summary", "Max", ["0-3s %", "3-4s %", "4-5s %", ">6s %"])
+    api_and_askai_cards(run_frames)
 
 
 
