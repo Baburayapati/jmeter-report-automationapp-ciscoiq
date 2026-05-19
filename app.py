@@ -76,8 +76,25 @@ st.markdown("""
 .stButton>button {
     white-space: nowrap !important;
 }
+[data-testid="stStatusWidget"],
+[data-testid="stToolbar"],
+#MainMenu,
+footer {
+    display: none !important;
+}
 .stCheckbox input[type="checkbox"] {
     accent-color: #2563eb !important;
+}
+[data-testid="stStatusWidget"],
+[data-testid="stToolbar"],
+#MainMenu {
+    display: none !important;
+}
+button[title="Manage app"],
+a[aria-label="Manage app"],
+iframe[title*="streamlit"],
+iframe[title*="Streamlit"] {
+    display: none !important;
 }
 [data-testid="stCheckbox"] div[role="checkbox"] {
     border-color: #93c5fd !important;
@@ -2359,6 +2376,13 @@ st.markdown(
   border-radius: 10px !important;
   font-weight: 750 !important;
 }
+.stAppDeployButton,
+[data-testid="stToolbar"],
+[data-testid="stStatusWidget"],
+#MainMenu,
+footer {
+  display: none !important;
+}
 [data-testid="stFileUploader"] {
   background:white;
   border:1px dashed #a6b4ca;
@@ -3469,12 +3493,21 @@ def sla_donut(df: pd.DataFrame):
         color="SLA Status",
         color_discrete_map={"PASS": "#2ca02c", "FAIL": "#ef4444"},
     )
-    s = summarize_run(df)
+    pass_count = float(counts.loc[counts["SLA Status"] == "PASS", "Count"].sum())
+    fail_count = float(counts.loc[counts["SLA Status"] == "FAIL", "Count"].sum())
+    total_count = pass_count + fail_count or 1.0
+    pass_pct = round((pass_count / total_count) * 100, 2)
+    percent_by_status = {
+        "PASS": pass_pct,
+        "FAIL": round((fail_count / total_count) * 100, 2),
+    }
+    counts["LabelText"] = counts["SLA Status"].map(lambda s: f"{percent_by_status.get(str(s), 0):.2f}%")
+    fig.update_traces(text=counts["LabelText"], textinfo="text", textposition="inside")
     fig.update_layout(
         height=280,
         margin=dict(l=5, r=5, t=15, b=5),
         legend=dict(orientation="v", yanchor="middle", y=.5, xanchor="left", x=.82),
-        annotations=[dict(text=f"<b>{s['sla_compliance']}%</b><br>PASS", x=.39, y=.5, font_size=18, showarrow=False)],
+        annotations=[dict(text=f"<b>{pass_pct:.2f}%</b><br>PASS", x=.39, y=.5, font_size=18, showarrow=False)],
     )
     return fig
 
@@ -4297,13 +4330,13 @@ def goto_tab_button(label: str, tab_name: str, key: str) -> None:
         st.session_state["nav_target"] = tab_name
         st.session_state["dashboard_tab"] = tab_name
         run_id_value = params.get("run_id", "") or st.session_state.get("run_id", "")
+        st.query_params["view"] = "dashboard"
+        st.query_params["tab"] = tab_name
+        st.query_params["program"] = st.session_state.get("active_program", PROGRAM_SAAS)
+        st.query_params["track"] = st.session_state.get("active_track", TRACK_API)
+        st.query_params["region"] = st.session_state.get("active_region", "All")
         if run_id_value:
-            st.query_params["view"] = "dashboard"
             st.query_params["run_id"] = run_id_value
-            st.query_params["tab"] = tab_name
-            st.query_params["program"] = st.session_state.get("active_program", PROGRAM_SAAS)
-            st.query_params["track"] = st.session_state.get("active_track", TRACK_API)
-            st.query_params["region"] = st.session_state.get("active_region", "All")
         st.rerun()
 
 
@@ -4311,12 +4344,15 @@ def goto_tab_button(label: str, tab_name: str, key: str) -> None:
 def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
     # Fast in-app navigation with screenshot-like layout.
     current_run_id = params.get("run_id", "") or st.session_state.get("run_id", "")
-    selected_tab = params.get("tab", "") or st.session_state.get("dashboard_tab") or "Overview"
+    requested_tab = st.session_state.pop("nav_target", "")
+    selected_tab = requested_tab or params.get("tab", "") or st.session_state.get("dashboard_tab") or "Overview"
     legacy_tabs = {"Drilldown": "Detailed Report", "Compare": "Track Comparison", "Reports": "Overview", "Trends": "Overview"}
     selected_tab = legacy_tabs.get(selected_tab, selected_tab)
     if selected_tab not in ["Overview", "Track Comparison", "Detailed Report", "Defect details", "Chatbot"]:
         selected_tab = "Overview"
     st.session_state["dashboard_tab"] = selected_tab
+    if requested_tab:
+        st.session_state.pop("dashboard_dropdown", None)
 
     active_program = st.session_state.get("active_program") or params.get("program", "") or PROGRAM_SAAS
     program_values = [PROGRAM_SAAS, "Cisco IQ Onprem - Assets", "Cisco IQ Onprem - Risk App", "CX AI Assistant", "AI Framework"]
@@ -4373,7 +4409,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     with d_col:
         st.markdown('<div class="dropdown-blue-label">Dashboard View</div>', unsafe_allow_html=True)
         dashboard_select_value = selected_tab if selected_tab in tabs_html else "Overview"
-        selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(dashboard_select_value), label_visibility="collapsed", key="dashboard_dropdown")
+        selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(dashboard_select_value), label_visibility="collapsed")
 
     with r_col:
         st.markdown('<div class="dropdown-blue-label">Region</div>', unsafe_allow_html=True)
@@ -4422,7 +4458,6 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
 
     with side_col:
         selected_frames = get_filtered_frames(run_frames, forced_region=region_focus, forced_track=active_track)
-        insights = cached_auto_insights(selected_frames)
         st.markdown('<div class="side-card"><div class="panel-title">REPORT ACTIONS</div>', unsafe_allow_html=True)
         if st.session_state.get("excel_bytes"):
             st.download_button(
@@ -4438,8 +4473,12 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown('<div class="side-card"><div class="panel-title">INSIGHTS</div>', unsafe_allow_html=True)
-        for icon, color, text in insights:
-            st.markdown(f'<div class="insight-item"><div class="dot" style="background:{color};">{icon}</div><div>{text}</div></div>', unsafe_allow_html=True)
+        if selected_tab == "Chatbot":
+            st.info("Chatbot mode is active. Ask questions about SLA, slow APIs, errors, regions, and comparisons.")
+        else:
+            insights = cached_auto_insights(selected_frames)
+            for icon, color, text in insights:
+                st.markdown(f'<div class="insight-item"><div class="dot" style="background:{color};">{icon}</div><div>{text}</div></div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
         try:
@@ -4454,12 +4493,6 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             st.warning("No reports match the selected filters. Please update Data & Filters.")
             return
 
-        df = cached_combined_df(selected_frames)
-        if active_track == TRACK_UI:
-            df = apply_ui_speed_index_sla(df)
-        elif active_track == TRACK_API:
-            df = apply_api_sla_thresholds(df)
-
         if selected_tab == "Track Comparison":
             render_compare_tab(selected_frames)
             return
@@ -4473,6 +4506,12 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
         if selected_tab == "Chatbot":
             render_chatbot(selected_frames, key_suffix="dashboard")
             return
+
+        df = cached_combined_df(selected_frames)
+        if active_track == TRACK_UI:
+            df = apply_ui_speed_index_sla(df)
+        elif active_track == TRACK_API:
+            df = apply_api_sla_thresholds(df)
         render_aggregated_or_comparison_summary(selected_frames)
 
         st.markdown('<div class="grid-3">', unsafe_allow_html=True)
@@ -4845,6 +4884,14 @@ def chat_answer(question: str, run_frames: List[Dict[str, pd.DataFrame]]) -> Tup
 
 
 def render_chatbot(run_frames: List[Dict[str, pd.DataFrame]], key_suffix: str = 'side') -> None:
+    if not st.session_state.get("messages"):
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": "Hi! I can answer questions about SLA, slow APIs, errors, regions, and comparisons for the selected report data.",
+                "table": None,
+            }
+        ]
     st.markdown('<div class="chat-card"><div class="chat-header">AI ASSISTANT</div>', unsafe_allow_html=True)
     st.write("Hi! I can chat normally and answer questions from this uploaded performance report.")
     with st.expander("Try asking me", expanded=True):
@@ -4974,8 +5021,10 @@ def cached_excel_bytes_for_saved_api(saved_path_str: str, display_name: str, mti
     """Build Excel bytes for one saved API JSON file and cache by path/name/mtime."""
     saved_path = Path(saved_path_str)
     with tempfile.TemporaryDirectory() as tmpdir:
+        temp_json_path = Path(tmpdir) / f"{display_name}.json"
+        temp_json_path.write_bytes(saved_path.read_bytes())
         output_path = Path(tmpdir) / f"{display_name}.xlsx"
-        build_report(saved_path, output_path)
+        build_report(temp_json_path, output_path)
         return output_path.read_bytes()
 
 def compact_saved_file_label(file_name: str) -> str:
@@ -5019,9 +5068,12 @@ def infer_saved_report_info(file_name: str) -> Dict[str, str]:
             break
 
     duration = "N/A"
-    duration_match = re.search(r"(\d+)\s*[_\-\s]?\s*(HOUR|HOURS|HR|HRS)", upper)
-    if duration_match:
-        duration = f"{duration_match.group(1)} Hour"
+    hour_match = re.search(r"(\d+)\s*[_\-\s]?\s*(HOUR|HOURS|HR|HRS)", upper)
+    minute_match = re.search(r"(\d+)\s*[_\-\s]?\s*(MIN|MINS|MINUTE|MINUTES)", upper)
+    if hour_match:
+        duration = f"{hour_match.group(1)} Hour"
+    elif minute_match:
+        duration = f"{minute_match.group(1)} Min"
 
     date = "N/A"
     parsed_date = extract_mmddyyyy_from_text(stem)
@@ -5379,14 +5431,22 @@ def generate_dashboard_from_json_paths(json_paths: List[Path], labels: List[str]
         tmpdir_path = Path(tmpdir)
         output_path = tmpdir_path / "JMeter_Report.xlsx"
 
+        normalized_json_paths: List[Path] = []
+        for idx, src in enumerate(json_paths):
+            raw_label = labels[idx] if idx < len(labels) else Path(src).stem
+            safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(raw_label)).strip("_") or f"Run_{idx+1}"
+            copied = tmpdir_path / f"{safe_label}.json"
+            copied.write_bytes(Path(src).read_bytes())
+            normalized_json_paths.append(copied)
+
         run_frames: List[Dict[str, pd.DataFrame]] = []
-        for path, label in zip(json_paths, labels):
+        for path, label in zip(normalized_json_paths, labels):
             run_frames.append(process_uploaded_file(path, label))
 
-        if len(json_paths) == 1:
-            build_report(json_paths[0], output_path)
+        if len(normalized_json_paths) == 1:
+            build_report(normalized_json_paths[0], output_path)
         else:
-            build_comparison_report(json_paths, labels, output_path)
+            build_comparison_report(normalized_json_paths, labels, output_path)
 
         run_frames = add_region_to_frames(run_frames)
         excel_bytes = output_path.read_bytes()
@@ -6100,7 +6160,25 @@ def load_saved_dashboard_frames() -> List[Dict[str, pd.DataFrame]]:
 
         try:
             if suffix == ".json" and track_name == TRACK_API:
-                frames_out.append(process_uploaded_file(path, label))
+                frame = process_uploaded_file(path, label)
+                frame["Region"] = item.get("region") or infer_saved_report_info(file_name).get("region", frame.get("Region", "Unknown"))
+                run_info = frame.get("Run_Info")
+                if run_info is None or run_info.empty:
+                    run_info = pd.DataFrame([{}])
+                run_info = run_info.copy()
+                if run_info.empty:
+                    run_info = pd.DataFrame([{}])
+                run_info.loc[0, "Report File"] = file_name
+                run_info.loc[0, "Date"] = item.get("date") or run_info.loc[0].get("Date", "N/A")
+                run_info.loc[0, "Duration"] = item.get("duration") or run_info.loc[0].get("Duration", "N/A")
+                run_info.loc[0, "Region"] = frame.get("Region", run_info.loc[0].get("Region", "Unknown"))
+                run_info.loc[0, "Program"] = item.get("program") or run_info.loc[0].get("Program", PROGRAM_SAAS)
+                run_info.loc[0, "Track"] = TRACK_API
+                run_info.loc[0, "Application"] = item.get("application") or run_info.loc[0].get("Application", APP_NAME_TOKEN)
+                run_info.loc[0, "Environment"] = item.get("environment") or run_info.loc[0].get("Environment", "PROD")
+                run_info.loc[0, "Run ID"] = item.get("run_id") or run_info.loc[0].get("Run ID", "N/A")
+                frame["Run_Info"] = run_info
+                frames_out.append(frame)
                 continue
 
             if suffix == ".csv" and track_name in {TRACK_UI, TRACK_CLOUD, TRACK_INVENTORY}:
@@ -6174,12 +6252,21 @@ def load_static_saved_dashboard() -> bool:
             api_labels.append(Path(item.get("file_name", saved_path.name)).stem)
 
         if len(api_paths) == 1:
-            p = api_paths[0]
-            excel_bytes = cached_excel_bytes_for_saved_api(str(p), api_labels[0], p.stat().st_mtime)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                copied = Path(tmpdir) / f"{api_labels[0]}.json"
+                copied.write_bytes(api_paths[0].read_bytes())
+                output_path = Path(tmpdir) / "JMeter_Report.xlsx"
+                build_report(copied, output_path)
+                excel_bytes = output_path.read_bytes()
         elif len(api_paths) > 1:
             with tempfile.TemporaryDirectory() as tmpdir:
+                temp_json_paths: List[Path] = []
+                for path, label in zip(api_paths, api_labels):
+                    copied_path = Path(tmpdir) / f"{label}.json"
+                    copied_path.write_bytes(path.read_bytes())
+                    temp_json_paths.append(copied_path)
                 output_path = Path(tmpdir) / "JMeter_Report.xlsx"
-                build_comparison_report(api_paths, api_labels, output_path)
+                build_comparison_report(temp_json_paths, api_labels, output_path)
                 excel_bytes = output_path.read_bytes()
         else:
             excel_bytes = build_excel_bytes_from_frames(frames)
