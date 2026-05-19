@@ -3442,6 +3442,12 @@ def get_filtered_frames(run_frames: List[Dict[str, pd.DataFrame]], forced_region
     if meta.empty:
         return []
 
+    if forced_region and forced_region != "All":
+        forced_region_norm = str(forced_region).strip().lower()
+        meta = meta[meta["Region"].astype(str).str.strip().str.lower() == forced_region_norm].copy()
+        if meta.empty:
+            return []
+
     files = meta["Result Option"].astype(str).tolist()
     dedup = {}
     for i, name in enumerate(files):
@@ -4181,63 +4187,59 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
 
     st.session_state["active_track"] = active_track
 
-    programs_html = [
-        ("🎧", "Cisco IQ SaaS Support Services", PROGRAM_SAAS),
-        ("▧", "Cisco IQ Onprem - Assets", "Cisco IQ Onprem - Assets"),
-        ("🛡", "Cisco IQ Onprem - Risk App", "Cisco IQ Onprem - Risk App"),
-        ("✣", "CX AI Assistant", "CX AI Assistant"),
-        ("🤖", "AI Framework", "AI Framework"),
-    ]
     tracks_html = ["API", "UI", "Cloud Assist Connector", "Customer Inventory Benchmarking"]
-    tabs_html = [
-        ("Overview", "◈ Overview"),
-        ("Track Comparison", "▥ Track Comparison"),
-        ("Detailed Report", "▣ Detailed Report"),
-        ("Chatbot", "● AI Chatbot"),
-    ]
+    tabs_html = ["Overview", "Track Comparison", "Detailed Report", "Chatbot"]
+
+    region_values = sorted({
+        str(frames.get("Region", region_from_frames(frames)))
+        for frames in run_frames
+        if frame_track_name(frames) == active_track
+    })
+    if not region_values:
+        region_values = sorted({str(frames.get("Region", region_from_frames(frames))) for frames in run_frames})
+    region_values = [r for r in region_values if r and r != "Unknown"]
+    region_options = ["All"] + region_values
+
+    active_region = str(st.session_state.get("active_region") or params.get("region", "All") or "All")
+    if active_region not in region_options:
+        active_region = "All"
+    st.session_state["active_region"] = active_region
 
     nav_changed = False
     st.markdown('<div class="exact-nav-anchor"></div>', unsafe_allow_html=True)
-    nav_left, nav_right = st.columns([1.05, 3.3], gap="small")
-    with nav_left:
-        st.markdown('<div class="exact-label white">Programs</div>', unsafe_allow_html=True)
-        for icon, label, value in programs_html:
-            if st.button(
-                f"{icon}  {label}",
-                key=f"prog_fast_{sanitize_token(value)}",
-                type="primary" if active_program == value else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state["active_program"] = value
-                st.session_state["active_track"] = TRACK_API
-                st.session_state["dashboard_tab"] = "Overview"
-                nav_changed = True
+    p_col, t_col, d_col, r_col = st.columns([1.7, 1.35, 1.35, 1.1], gap="small")
 
-    with nav_right:
-        st.markdown('<div class="exact-label">Program Tracks</div>', unsafe_allow_html=True)
-        t1, t2, t3, t4 = st.columns([.58, .68, 1.55, 1.95], gap="small")
-        for col, value in zip([t1, t2, t3, t4], tracks_html):
-            if col.button(
-                value,
-                key=f"trk_fast_{sanitize_token(value)}",
-                type="primary" if active_track == value else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state["active_track"] = value
-                st.session_state["dashboard_tab"] = "Overview"
-                nav_changed = True
+    with p_col:
+        st.markdown('<div class="exact-label">Select Program</div>', unsafe_allow_html=True)
+        selected_program = st.selectbox("Program", program_values, index=program_values.index(active_program), label_visibility="collapsed", key="program_dropdown")
 
-        st.markdown('<div class="exact-label" style="margin-top:8px;">Dashboard Views</div>', unsafe_allow_html=True)
-        tab_cols = st.columns([1.05, 1.42, 1.32, 1.15][:len(tabs_html)], gap="small")
-        for col, (value, label) in zip(tab_cols, tabs_html):
-            if col.button(
-                label,
-                key=f"tab_fast_{sanitize_token(value)}",
-                type="primary" if selected_tab == value else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state["dashboard_tab"] = value
-                nav_changed = True
+    with t_col:
+        st.markdown('<div class="exact-label">Program Track</div>', unsafe_allow_html=True)
+        selected_track = st.selectbox("Track", tracks_html, index=tracks_html.index(active_track), label_visibility="collapsed", key="track_dropdown")
+
+    with d_col:
+        st.markdown('<div class="exact-label">Dashboard View</div>', unsafe_allow_html=True)
+        selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(selected_tab if selected_tab in tabs_html else "Overview"), label_visibility="collapsed", key="dashboard_dropdown")
+
+    with r_col:
+        st.markdown('<div class="exact-label">Region</div>', unsafe_allow_html=True)
+        selected_region = st.selectbox("Region", region_options, index=region_options.index(active_region), label_visibility="collapsed", key="region_dropdown")
+
+    if selected_program != active_program:
+        st.session_state["active_program"] = selected_program
+        st.session_state["active_track"] = TRACK_API
+        st.session_state["dashboard_tab"] = "Overview"
+        nav_changed = True
+    if selected_track != active_track:
+        st.session_state["active_track"] = selected_track
+        st.session_state["dashboard_tab"] = "Overview"
+        nav_changed = True
+    if selected_dashboard_tab != selected_tab:
+        st.session_state["dashboard_tab"] = selected_dashboard_tab
+        nav_changed = True
+    if selected_region != active_region:
+        st.session_state["active_region"] = selected_region
+        nav_changed = True
 
 
     if nav_changed:
@@ -4247,6 +4249,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             st.query_params["program"] = st.session_state.get("active_program", PROGRAM_SAAS)
             st.query_params["track"] = st.session_state.get("active_track", TRACK_API)
             st.query_params["tab"] = st.session_state.get("dashboard_tab", "Overview")
+            st.query_params["region"] = st.session_state.get("active_region", "All")
         st.rerun()
 
     selected_tab = st.session_state.get("dashboard_tab", selected_tab)
@@ -4259,7 +4262,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             st.info(f"{active_program} is planned for Q4FY26. Dashboard enablement is in upcoming release windows.")
         return
 
-    region_focus = "All"
+    region_focus = st.session_state.get("active_region", "All")
 
     main_col, side_col = st.columns([4.35, .95], gap="medium")
 
