@@ -2422,8 +2422,22 @@ footer {
   display: none !important;
 }
 .login-form-wrap [data-testid="stTextInput"] [data-testid="InputInstructions"],
-.login-form-wrap [data-testid="stTextInput"] div:has(> span) {
+.login-form-wrap [data-testid="stTextInput"] [data-testid="InputInstructions"] *,
+.login-form-wrap [data-testid="stTextInput"] div[aria-live="polite"],
+.login-form-wrap [data-testid="stTextInput"] div[aria-live="polite"] *,
+.login-form-wrap [data-testid="stTextInput"] small,
+.login-form-wrap [data-testid="stTextInput"] small *,
+.login-form-wrap [data-testid="stTextInput"] [data-baseweb="input"] + div,
+.login-form-wrap [data-testid="stTextInput"] [data-baseweb="input"] + div * {
   display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
 }
 .login-form-wrap [data-testid="stTextInput"] label {
   color: #1f2937 !important;
