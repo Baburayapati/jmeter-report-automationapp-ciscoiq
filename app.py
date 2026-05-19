@@ -3221,23 +3221,6 @@ def render_dashboard_header() -> None:
     )
 
 
-def render_browser_back_reload_hook() -> None:
-    components.html(
-        """
-<script>
-const parentWindow = window.parent;
-if (!parentWindow.__ciscoiqBackReloadHookInstalled) {
-  parentWindow.__ciscoiqBackReloadHookInstalled = true;
-  parentWindow.addEventListener('popstate', () => {
-    setTimeout(() => parentWindow.location.reload(), 20);
-  });
-}
-</script>
-""",
-        height=0,
-    )
-
-
 def dashboard_href(tab_name: str = "Overview", **overrides: str) -> str:
     query = {
         "view": "dashboard",
@@ -3252,6 +3235,10 @@ def dashboard_href(tab_name: str = "Overview", **overrides: str) -> str:
     return "?" + urlencode(query)
 
 
+def full_page_link_attrs(href: str) -> str:
+    return f'href="{href}" target="_self" onclick="event.preventDefault(); window.location.href=this.href;"'
+
+
 def render_dashboard_tab_links(current_tab: str) -> None:
     tabs = [
         ("Overview", "◈  Overview"),
@@ -3260,7 +3247,7 @@ def render_dashboard_tab_links(current_tab: str) -> None:
         ("Defect details", "◉  Defect details"),
     ]
     links_html = "".join(
-        f'<a class="dashboard-tab-link {"active" if tab_value == current_tab else ""}" href="{dashboard_href(tab_value)}" target="_self">{html.escape(tab_label)}</a>'
+        f'<a class="dashboard-tab-link {"active" if tab_value == current_tab else ""}" {full_page_link_attrs(dashboard_href(tab_value))}>{html.escape(tab_label)}</a>'
         for tab_value, tab_label in tabs
     )
     st.markdown(f'<div class="dashboard-tab-link-row">{links_html}</div>', unsafe_allow_html=True)
@@ -4440,7 +4427,7 @@ def render_dashboard_excel_report_actions(region_focus: str = "All") -> None:
 
 def goto_tab_button(label: str, tab_name: str, key: str) -> None:
     st.markdown(
-        f'<a class="primary-pill" href="{dashboard_href(tab_name)}" target="_self" style="width:100%;text-align:center;">{html.escape(label)}</a>',
+        f'<a class="primary-pill" {full_page_link_attrs(dashboard_href(tab_name))} style="width:100%;text-align:center;">{html.escape(label)}</a>',
         unsafe_allow_html=True,
     )
 
@@ -4448,9 +4435,8 @@ def goto_tab_button(label: str, tab_name: str, key: str) -> None:
 
 def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
     # Fast in-app navigation with screenshot-like layout.
-    render_browser_back_reload_hook()
     current_run_id = params.get("run_id", "") or st.session_state.get("run_id", "")
-    requested_tab = st.session_state.pop("nav_target", "")
+    requested_tab = ""
     url_tab = params.get("tab", "")
     selected_tab = requested_tab or url_tab or "Overview"
     legacy_tabs = {"Drilldown": "Detailed Report", "Compare": "Track Comparison", "Reports": "Overview", "Trends": "Overview"}
@@ -4458,17 +4444,17 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     if selected_tab not in ["Overview", "Track Comparison", "Detailed Report", "Defect details", "Chatbot"]:
         selected_tab = "Overview"
     st.session_state["dashboard_tab"] = selected_tab
-    if requested_tab:
-        st.session_state.pop("dashboard_dropdown", None)
     render_dashboard_tab_links(selected_tab)
 
-    active_program = st.session_state.get("active_program") or params.get("program", "") or PROGRAM_SAAS
+    active_program = params.get("program", "") or st.session_state.get("active_program") or PROGRAM_SAAS
     program_values = [PROGRAM_SAAS, "Cisco IQ Onprem - Assets", "Cisco IQ Onprem - Risk App", "CX AI Assistant", "AI Framework"]
     if active_program not in program_values:
         active_program = PROGRAM_SAAS
     st.session_state["active_program"] = active_program
+    if st.session_state.get("program_dropdown") != active_program:
+        st.session_state["program_dropdown"] = active_program
 
-    active_track = st.session_state.get("active_track") or params.get("track", "") or "API"
+    active_track = params.get("track", "") or st.session_state.get("active_track") or "API"
     active_track = canonical_track_name(active_track)
     track_values = ["API", "UI", "Cloud Assist Connector", "Customer Inventory Benchmarking"]
     if active_track not in track_values:
@@ -4483,6 +4469,8 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             available_tracks.append(track_name)
 
     st.session_state["active_track"] = active_track
+    if st.session_state.get("track_dropdown") != active_track:
+        st.session_state["track_dropdown"] = active_track
 
     tracks_html = ["API", "UI", "Cloud Assist Connector", "Customer Inventory Benchmarking"]
     tabs_html = ["Overview", "Track Comparison", "Detailed Report", "Defect details"]
@@ -4497,10 +4485,12 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     region_values = [r for r in region_values if r and r != "Unknown"]
     region_options = ["All"] + region_values
 
-    active_region = str(st.session_state.get("active_region") or params.get("region", "All") or "All")
+    active_region = str(params.get("region", "") or st.session_state.get("active_region") or "All")
     if active_region not in region_options:
         active_region = "All"
     st.session_state["active_region"] = active_region
+    if st.session_state.get("region_dropdown") != active_region:
+        st.session_state["region_dropdown"] = active_region
 
     nav_changed = False
     st.markdown('<div class="exact-nav-anchor"></div>', unsafe_allow_html=True)
@@ -4517,7 +4507,9 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
     with d_col:
         st.markdown('<div class="dropdown-blue-label">Dashboard View</div>', unsafe_allow_html=True)
         dashboard_select_value = selected_tab if selected_tab in tabs_html else "Overview"
-        selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(dashboard_select_value), label_visibility="collapsed")
+        if st.session_state.get("dashboard_dropdown") != dashboard_select_value:
+            st.session_state["dashboard_dropdown"] = dashboard_select_value
+        selected_dashboard_tab = st.selectbox("Dashboard", tabs_html, index=tabs_html.index(dashboard_select_value), label_visibility="collapsed", key="dashboard_dropdown")
 
     with r_col:
         st.markdown('<div class="dropdown-blue-label">Region</div>', unsafe_allow_html=True)
@@ -4548,8 +4540,14 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             region=st.session_state.get("active_region", "All"),
             run_id=current_run_id,
         )
-        components.html(f'<script>window.parent.location.href = "{target_href}";</script>', height=0)
-        st.stop()
+        st.markdown(
+            f"""
+<meta http-equiv="refresh" content="0; url={target_href}">
+<a {full_page_link_attrs(target_href)}>Continue to selected dashboard view</a>
+""",
+            unsafe_allow_html=True,
+        )
+        return
 
     selected_tab = st.session_state.get("dashboard_tab", selected_tab)
     active_program = st.session_state.get("active_program", active_program)
@@ -4584,7 +4582,7 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
         except Exception:
             dashboard_url = ""
         if dashboard_url:
-            st.markdown(f'<a class="primary-pill" href="{dashboard_url}?view=dashboard&tab=Overview" target="_self" style="width:100%;text-align:center;">Open Dashboard →</a>', unsafe_allow_html=True)
+            st.markdown(f'<a class="primary-pill" {full_page_link_attrs(f"{dashboard_url}?view=dashboard&tab=Overview")} style="width:100%;text-align:center;">Open Dashboard →</a>', unsafe_allow_html=True)
 
     with main_col:
         if not selected_frames:
@@ -6431,7 +6429,7 @@ def render_floating_chatbot_icon() -> None:
     transform: translateY(-1px) scale(1.02);
 }}
 </style>
-<a class="floating-chatbot-launcher" href="{chat_href}" target="_self" title="Open AI Chatbot">💬</a>
+<a class="floating-chatbot-launcher" {full_page_link_attrs(chat_href)} title="Open AI Chatbot">💬</a>
 """,
         unsafe_allow_html=True,
     )
@@ -6495,7 +6493,7 @@ def render_action_cards() -> None:
             st.markdown('<div class="action-card-title">Executive Dashboard</div>', unsafe_allow_html=True)
             st.markdown('<div class="action-card-text">Open the leadership-ready dashboard with KPIs, region comparison, heatmaps and drilldowns.</div>', unsafe_allow_html=True)
             link_class = "action-link" if has_report else "action-link disabled"
-            st.markdown(f'<a class="{link_class}" href="{dashboard_link}" target="_self">Open Dashboard →</a>', unsafe_allow_html=True)
+            st.markdown(f'<a class="{link_class}" {full_page_link_attrs(dashboard_link)}>Open Dashboard →</a>', unsafe_allow_html=True)
 
     with c2:
         with st.container(border=True):
@@ -6518,7 +6516,7 @@ def render_action_cards() -> None:
             st.markdown('<div class="action-card-title">AI Chatbot</div>', unsafe_allow_html=True)
             st.markdown('<div class="action-card-text">Open the dashboard chatbot and ask questions about SLA, slow APIs, errors, regions and comparisons.</div>', unsafe_allow_html=True)
             link_class = "action-link purple" if has_report else "action-link disabled"
-            st.markdown(f'<a class="{link_class}" href="{chatbot_link}" target="_self">Open Chatbot →</a>', unsafe_allow_html=True)
+            st.markdown(f'<a class="{link_class}" {full_page_link_attrs(chatbot_link)}>Open Chatbot →</a>', unsafe_allow_html=True)
 
 # Session state
 if "excel_bytes" not in st.session_state: st.session_state.excel_bytes = None
@@ -6611,7 +6609,7 @@ elif team_upload_view:
                     st.session_state.run_id = new_run_id
                     st.toast("Report generated successfully.", icon="✅")
                     st.success("Dashboard generated. Share the dashboard link below with management.")
-                    st.markdown(f'<a class="primary-pill" href="{dashboard_href("Overview", run_id=new_run_id)}" target="_self">Open Results Dashboard →</a>', unsafe_allow_html=True)
+                    st.markdown(f'<a class="primary-pill" {full_page_link_attrs(dashboard_href("Overview", run_id=new_run_id))}>Open Results Dashboard →</a>', unsafe_allow_html=True)
                     st.info("Dashboard, Excel Report, and AI Chatbot are now available from the left panel.")
                 except Exception as exc:
                     st.error(f"Failed to generate report: {exc}")
