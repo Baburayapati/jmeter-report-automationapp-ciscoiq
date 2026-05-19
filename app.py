@@ -2860,6 +2860,24 @@ def apply_api_sla_thresholds(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
+def normalize_sla_for_dashboard_df(df: pd.DataFrame, track_name: str) -> pd.DataFrame:
+    track_name = canonical_track_name(track_name)
+    if track_name == TRACK_UI:
+        return apply_ui_speed_index_sla(df)
+    if track_name == TRACK_API:
+        return apply_api_sla_thresholds(df)
+    return df
+
+
+def normalize_sla_for_dashboard_frames(run_frames: List[Dict[str, pd.DataFrame]], track_name: str) -> List[Dict[str, pd.DataFrame]]:
+    normalized = []
+    for frames in run_frames:
+        f = dict(frames)
+        f["APIs"] = normalize_sla_for_dashboard_df(frames.get("APIs", pd.DataFrame()), track_name)
+        normalized.append(f)
+    return normalized
+
+
 def track_summary(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
@@ -3451,14 +3469,7 @@ def build_run_summary_table(run_frames: List[Dict[str, pd.DataFrame]], include_h
 def render_aggregated_or_comparison_summary(run_frames: List[Dict[str, pd.DataFrame]]) -> None:
     active_track = canonical_track_name(st.session_state.get("active_track") or params.get("track", "") or TRACK_API)
     hide_health = active_track == TRACK_UI
-    scoped_frames = run_frames
-    if active_track == TRACK_UI:
-        scoped_frames = []
-        for frames in run_frames:
-            f = dict(frames)
-            apis_df = frames.get("APIs", pd.DataFrame())
-            f["APIs"] = apply_ui_speed_index_sla(apis_df)
-            scoped_frames.append(f)
+    scoped_frames = normalize_sla_for_dashboard_frames(run_frames, active_track)
 
     if len(run_frames) <= 1:
         kpi_cards(combined_df(scoped_frames), compact=True, show_health=not hide_health)
@@ -3507,7 +3518,7 @@ def sla_donut(df: pd.DataFrame):
         height=280,
         margin=dict(l=5, r=5, t=15, b=5),
         legend=dict(orientation="v", yanchor="middle", y=.5, xanchor="left", x=.82),
-        annotations=[dict(text=f"<b>{pass_pct:.2f}%</b><br>PASS", x=.39, y=.5, font_size=18, showarrow=False)],
+        annotations=[dict(text=f"<b>{pass_pct:.2f}%</b><br>PASS<br><span style='font-size:14px'>{percent_by_status['FAIL']:.2f}% FAIL</span>", x=.39, y=.5, font_size=18, showarrow=False)],
     )
     return fig
 
@@ -4458,19 +4469,20 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
 
     with side_col:
         selected_frames = get_filtered_frames(run_frames, forced_region=region_focus, forced_track=active_track)
-        st.markdown('<div class="side-card"><div class="panel-title">REPORT ACTIONS</div>', unsafe_allow_html=True)
-        if st.session_state.get("excel_bytes"):
-            st.download_button(
-                "⬇ Download Excel Report",
-                data=st.session_state.excel_bytes,
-                file_name=st.session_state.report_file_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="side_panel_excel_download",
-                use_container_width=True,
-            )
-        else:
-            st.info("Excel report is not available in this dashboard session.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        if selected_tab != "Chatbot":
+            st.markdown('<div class="side-card"><div class="panel-title">REPORT ACTIONS</div>', unsafe_allow_html=True)
+            if st.session_state.get("excel_bytes"):
+                st.download_button(
+                    "⬇ Download Excel Report",
+                    data=st.session_state.excel_bytes,
+                    file_name=st.session_state.report_file_name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="side_panel_excel_download",
+                    use_container_width=True,
+                )
+            else:
+                st.info("Excel report is not available in this dashboard session.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown('<div class="side-card"><div class="panel-title">INSIGHTS</div>', unsafe_allow_html=True)
         if selected_tab == "Chatbot":
@@ -4507,12 +4519,9 @@ def render_executive_dashboard(run_frames: List[Dict[str, pd.DataFrame]]) -> Non
             render_chatbot(selected_frames, key_suffix="dashboard")
             return
 
-        df = cached_combined_df(selected_frames)
-        if active_track == TRACK_UI:
-            df = apply_ui_speed_index_sla(df)
-        elif active_track == TRACK_API:
-            df = apply_api_sla_thresholds(df)
-        render_aggregated_or_comparison_summary(selected_frames)
+        selected_frames_for_sla = normalize_sla_for_dashboard_frames(selected_frames, active_track)
+        df = cached_combined_df(selected_frames_for_sla)
+        render_aggregated_or_comparison_summary(selected_frames_for_sla)
 
         st.markdown('<div class="grid-3">', unsafe_allow_html=True)
         # Streamlit does not nest into raw grid well; use columns instead.
